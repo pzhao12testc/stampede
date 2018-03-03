@@ -43,7 +43,7 @@ script:
 - echo GIBSTUDYSTART $(date)
 - "if [ \"$TRAVIS_EVENT_TYPE\" == cron ] && [ \"$TRAVIS_BRANCH\" == devel ]\nthen\n\
   \    bash .travis/build-packages\nelse\n    mvn -Psafer -Pintegration -B -e -T 1C\
-  \ -Dcheckstyle.consoleOutput=false verify\nfi\n"
+  \ -Dcheckstyle.consoleOutput=false --update-snapshots verify\nfi\n"
 - echo GIBSTUDYEND $(date)
 - cd $TRAVIS_BUILD_DIR
 - echo TESTNUM $(find . -name TEST-*.xml -newer /tmp/NOW | wc -l)
