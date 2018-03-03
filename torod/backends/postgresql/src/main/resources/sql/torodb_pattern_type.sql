@@ -1,0 +1,1 @@
+CREATE DOMAIN torodb.torodb_pattern AS varchar;
