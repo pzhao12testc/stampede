@@ -2,9 +2,16 @@ addons:
   apt:
     packages:
     - oracle-java8-installer
+  sonarqube:
+    branches:
+    - devel
+    - master
 after_success:
-- bash <(curl -s https://codecov.io/bash) || echo "Codecov did not collect coverage
-  reports"
+- if [[ $TRAVIS_REPO_SLUG = torodb/torodb ]]; then bash <(curl -s https://codecov.io/bash)
+  || echo 'Codecov did not collect coverage reports'; else echo 'Codecov not notified';
+  fi
+- if [[ $TRAVIS_REPO_SLUG = torodb/torodb ]]; then mvn sonar:sonar || echo 'Error
+  while notifying SonarQube'; else echo 'SonarQube not notified'; fi
 before_cache:
 - rm -rf $HOME/CACHE; find $TRAVIS_BUILD_DIR -name .ekstazi | while read line; do
   du -sh $line;         DIR=$(dirname $HOME/CACHE$line); mkdir -p $DIR; cp -r $line
@@ -17,16 +24,20 @@ before_script:
 - find $TRAVIS_BUILD_DIR -name .ekstazi | while read line; do rm -rf $line; done
 - find $HOME/CACHE -name .ekstazi | while read line; do du -sh $line;         DIR=$(dirname
   ${line#$HOME/CACHE}); if [[ -d ${DIR#.ekstazi/} ]]; then cp -r $line $DIR; fi; done
+- export GIT_BRANCH=$TRAVIS_BRANCH
 cache:
   directories:
+  - $HOME/.sonar/cache
   - $HOME/CACHE
-jdk:
-- oraclejdk8
+dist: trusty
+env:
+- secure: eQaksffQhrlaAKEFWIGR7Wbo01QKscfPl7MOQHQAytP74uU6in1VcPITdHr2UgTH/PhjMJ5Uevw7mrzDN+pDE8csNxVF7JozEAIh6DYhmBmmBOYu3+AypDqdtaBOmgAPkTLxSthiy5hsmOgCjfXPGrWqpQJ918n0RtdIL1p7W4L5N3I2yDcQOpFSXXizWADpGH/fErhihKdepNCco0JCfxLmpFa+i+goqsF1EEJPb2Ylz4LYhlez2NqULGQWio2+ucrYLDZHFTrdRyQ9Tq/RA62zdynmWQAYuE5nYmO1vmvk2mR+xQpIyevvAQY4RmffYKkK/Hq334H8rIH7etCn/e0fzaLnOveyIttoG0yaqpY/mPIZkOQBV0pSjCFONvt0gsgFfPYv5sHvRBM2dj1knwOLqwhqseR6en8+TaqeP2aYj/ittU3+7QJ9yHorfAYG14ofxm+Ue4o9wJ5FsyAzw5IpYnu28WRGy7+7kFfzo1prNh7dlqjDKrBMeK292seVPH+RDMaIs2ZAzfUZElhOtqvXGsuBfDtO2FG7L9ke+tbVB/z/srM0cXPJW0xcPdoeVgoH5+CyLTaR4+8tT0recQwfKrl7zluwKk+zWmxCs5BuV+JHcWrgC+sD0iKvOHbf/w+s5bLOs0kB4YjoiUZ0pK+9NphR/Mew7shnTFZi63o=
+jdk: oraclejdk8
 language: java
 script:
 - touch /tmp/NOW
 - echo GIBSTUDYSTART $(date)
-- mvn -Psafer -Pintegration -Passembler -Pcoverage -B -e -T 1C verify
+- mvn -Psafer -Pintegration -Passembler -B -e -T 1C verify
 - echo GIBSTUDYEND $(date)
 - cd $TRAVIS_BUILD_DIR
 - echo TESTNUM $(find . -name TEST-*.xml -newer /tmp/NOW | wc -l)
