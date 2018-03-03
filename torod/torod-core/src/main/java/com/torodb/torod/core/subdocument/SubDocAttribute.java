@@ -21,6 +21,7 @@
 package com.torodb.torod.core.subdocument;
 
 import java.io.Serializable;
+import javax.annotation.Nonnull;
 import javax.annotation.concurrent.Immutable;
 
 /**
@@ -30,27 +31,31 @@ import javax.annotation.concurrent.Immutable;
 public class SubDocAttribute implements Serializable {
     private static final long serialVersionUID = 1L;
 
+    @Nonnull
     private final String key;
-    private final BasicType type;
+    @Nonnull
+    private final ScalarType type;
 
-    public SubDocAttribute(String key, BasicType type) {
+    public SubDocAttribute(String key, ScalarType type) {
         this.key = key;
         this.type = type;
     }
 
+    @Nonnull
     public String getKey() {
         return key;
     }
 
-    public BasicType getType() {
+    @Nonnull
+    public ScalarType getType() {
         return type;
     }
 
     @Override
     public int hashCode() {
         int hash = 3;
-        hash = 67 * hash + (this.key != null ? this.key.hashCode() : 0);
-        hash = 67 * hash + (this.type != null ? this.type.hashCode() : 0);
+        hash = 67 * hash + this.key.hashCode();
+        hash = 67 * hash + this.type.hashCode();
         return hash;
     }
 
@@ -63,13 +68,16 @@ public class SubDocAttribute implements Serializable {
             return false;
         }
         final SubDocAttribute other = (SubDocAttribute) obj;
-        if ((this.key == null) ? (other.key != null) : !this.key.equals(other.key)) {
+        if (!this.key.equals(other.key)) {
             return false;
         }
-        if (this.type != other.type && (this.type == null || !this.type.equals(other.type))) {
-            return false;
-        }
-        return true;
+        return equalsWithSameKey(other);
+    }
+
+    boolean equalsWithSameKey(SubDocAttribute other) {
+        assert other.getKey().equals(this.getKey());
+
+        return this.type.equals(other.type);
     }
 
 }

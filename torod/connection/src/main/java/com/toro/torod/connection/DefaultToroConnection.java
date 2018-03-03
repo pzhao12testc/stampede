@@ -20,10 +20,12 @@
 
 package com.toro.torod.connection;
 
+import com.google.common.collect.FluentIterable;
 import com.torodb.torod.core.Session;
 import com.torodb.torod.core.config.DocumentBuilderFactory;
 import com.torodb.torod.core.connection.ToroConnection;
 import com.torodb.torod.core.connection.ToroTransaction;
+import com.torodb.torod.core.connection.TransactionMetainfo;
 import com.torodb.torod.core.cursors.CursorId;
 import com.torodb.torod.core.cursors.ToroCursor;
 import com.torodb.torod.core.cursors.ToroCursorManager;
@@ -41,9 +43,11 @@ import com.torodb.torod.core.language.querycriteria.QueryCriteria;
 import com.torodb.torod.core.pojos.CollectionMetainfo;
 import com.torodb.torod.core.subdocument.ToroDocument;
 import java.util.Collection;
-import java.util.List;
+import java.util.concurrent.ExecutionException;
 import javax.annotation.concurrent.NotThreadSafe;
 import javax.json.JsonObject;
+
+import static java.lang.Thread.currentThread;
 
 /**
  *
@@ -80,14 +84,14 @@ class DefaultToroConnection implements ToroConnection {
     }
 
     @Override
-    public UserCursor<ToroDocument> openUnlimitedCursor(
+    public UserCursor openUnlimitedCursor(
             String collection, 
             QueryCriteria queryCriteria, 
             Projection projection, 
             int numberToSkip, 
             boolean autoclose, 
             boolean hasTimeout) throws NotAutoclosableCursorException {
-        return new MyUserCursor<ToroDocument>(
+        return new MyUserCursor(
                 cursorManager.openUnlimitedCursor(
                         executor,
                         collection, 
@@ -101,7 +105,7 @@ class DefaultToroConnection implements ToroConnection {
     }
 
     @Override
-    public UserCursor<ToroDocument> openLimitedCursor(
+    public UserCursor openLimitedCursor(
             String collection, 
             QueryCriteria queryCriteria, 
             Projection projection, 
@@ -109,7 +113,7 @@ class DefaultToroConnection implements ToroConnection {
             int limit, 
             boolean autoclose, 
             boolean hasTimeout) throws ToroException {
-        return new MyUserCursor<ToroDocument>(
+        return new MyUserCursor(
                 cursorManager.openLimitedCursor(
                         executor,
                         collection, 
@@ -124,10 +128,20 @@ class DefaultToroConnection implements ToroConnection {
     }
 
     @Override
-    public UserCursor<CollectionMetainfo> openCollectionsMetainfoCursor() {
-        return new MyUserCursor<CollectionMetainfo>(
-                cursorManager.openCollectionsMetainfoCursor(executor)
-        );
+    public FluentIterable<CollectionMetainfo> getCollectionsMetainfoCursor() throws ToroException {
+        try {
+            return executor.getCollectionsMetainfo().get();
+        } catch (ExecutionException ex) {
+            if (ex.getCause() != null) {
+                if (ex.getCause() instanceof ToroException) {
+                    throw new ToroException(ex.getCause());
+                }
+            }
+            throw new ToroRuntimeException(ex);
+        } catch (InterruptedException ex) {
+            currentThread().interrupt();
+            throw new ToroRuntimeException(ex);
+        }
     }
 
     @Override
@@ -160,8 +174,8 @@ class DefaultToroConnection implements ToroConnection {
     }
 
     @Override
-    public ToroTransaction createTransaction() throws ImplementationDbException {
-        SessionTransaction sessionTransaction = executor.createTransaction();
+    public ToroTransaction createTransaction(TransactionMetainfo metainfo) throws ImplementationDbException {
+        SessionTransaction sessionTransaction = executor.createTransaction(metainfo);
         return new DefaultToroTransaction(
                 cache,
                 this, 
@@ -172,17 +186,12 @@ class DefaultToroConnection implements ToroConnection {
         );
     }
 
-    private class MyUserCursor<E> implements UserCursor<E> {
+    private class MyUserCursor implements UserCursor {
 
-        private final ToroCursor<E> cursor;
+        private final ToroCursor cursor;
 
-        public MyUserCursor(ToroCursor<E> cursor) {
+        private MyUserCursor(ToroCursor cursor) {
             this.cursor = cursor;
-        }
-        
-        @Override
-        public Class<? extends E> getType() {
-            return cursor.getType();
         }
 
         @Override
@@ -211,18 +220,23 @@ class DefaultToroConnection implements ToroConnection {
         }
 
         @Override
-        public List<E> readAll() throws ClosedToroCursorException {
+        public FluentIterable<ToroDocument> readAll() throws ClosedToroCursorException {
             return cursor.readAll(executor);
         }
 
         @Override
-        public List<E> read(int limit) throws ClosedToroCursorException {
+        public FluentIterable<ToroDocument> read(int limit) throws ClosedToroCursorException {
             return cursor.read(executor, limit);
         }
 
         @Override
         public void close() {
             cursor.close(executor);
+        }
+
+        @Override
+        public boolean isClosed() {
+            return cursor.isClosed();
         }
 
         @Override

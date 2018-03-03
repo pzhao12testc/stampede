@@ -1,17 +1,18 @@
 
 package com.torodb.torod.mongodb.commands.impl.torodb;
 
-import com.eightkdata.mongowp.mongoserver.api.safe.Command;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandImplementation;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandRequest;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandResult;
-import com.eightkdata.mongowp.mongoserver.api.safe.impl.CollectionCommandArgument;
-import com.eightkdata.mongowp.mongoserver.api.safe.impl.NonWriteCommandResult;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.CommandFailed;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.InternalErrorException;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.MongoException;
+import com.eightkdata.mongowp.exceptions.CommandFailed;
+import com.eightkdata.mongowp.exceptions.InternalErrorException;
+import com.eightkdata.mongowp.exceptions.MongoException;
+import com.eightkdata.mongowp.server.api.Command;
+import com.eightkdata.mongowp.server.api.CommandImplementation;
+import com.eightkdata.mongowp.server.api.CommandRequest;
+import com.eightkdata.mongowp.server.api.CommandResult;
+import com.eightkdata.mongowp.server.api.impl.CollectionCommandArgument;
+import com.eightkdata.mongowp.server.api.impl.NonWriteCommandResult;
 import com.torodb.torod.core.connection.ToroConnection;
 import com.torodb.torod.core.connection.ToroTransaction;
+import com.torodb.torod.core.connection.TransactionMetainfo;
 import com.torodb.torod.core.dbWrapper.exceptions.ImplementationDbException;
 import com.torodb.torod.mongodb.RequestContext;
 import com.torodb.torod.mongodb.utils.ToroDBThrowables;
@@ -40,10 +41,9 @@ public class CreatePathViewsImplementation implements CommandImplementation<Coll
         }
 
         ToroConnection connection = context.getToroConnection();
-        ToroTransaction transaction = null;
-
-        try {
-            transaction = connection.createTransaction();
+        
+        try (ToroTransaction transaction
+                = connection.createTransaction(TransactionMetainfo.NOT_READ_ONLY)) {
             NonWriteCommandResult<Integer> result = new NonWriteCommandResult<>(
                     ToroDBThrowables.getFromCommand(
                             commandName,
@@ -55,10 +55,6 @@ public class CreatePathViewsImplementation implements CommandImplementation<Coll
             return result;
         } catch (ImplementationDbException ex) {
             throw new InternalErrorException(command.getCommandName(), ex);
-        } finally {
-            if (transaction != null) {
-                transaction.close();
-            }
         }
 
     }

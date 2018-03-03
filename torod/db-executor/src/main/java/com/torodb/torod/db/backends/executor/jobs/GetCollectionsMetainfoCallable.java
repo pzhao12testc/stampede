@@ -1,20 +1,25 @@
 
 package com.torodb.torod.db.backends.executor.jobs;
 
+import com.google.common.collect.FluentIterable;
+import com.torodb.torod.core.dbWrapper.DbConnection;
 import com.torodb.torod.core.dbWrapper.DbWrapper;
 import com.torodb.torod.core.dbWrapper.exceptions.ImplementationDbException;
+import com.torodb.torod.core.dbWrapper.exceptions.UserDbException;
 import com.torodb.torod.core.exceptions.ToroException;
 import com.torodb.torod.core.exceptions.ToroRuntimeException;
+import com.torodb.torod.core.exceptions.UserToroException;
 import com.torodb.torod.core.pojos.CollectionMetainfo;
 import java.util.List;
 
 /**
  *
  */
-public class GetCollectionsMetainfoCallable extends Job<List<CollectionMetainfo>> {
+public class GetCollectionsMetainfoCallable extends Job<FluentIterable<CollectionMetainfo>> {
 
     private final DbWrapper wrapper;
     private final GetCollectionsMetainfoCallable.Report report;
+    private static final DbConnection.Metainfo CONNECTION_METADATA = new DbConnection.Metainfo(true);
 
     public GetCollectionsMetainfoCallable(DbWrapper wrapper, Report report) {
         this.wrapper = wrapper;
@@ -22,7 +27,7 @@ public class GetCollectionsMetainfoCallable extends Job<List<CollectionMetainfo>
     }
 
     @Override
-    protected List<CollectionMetainfo> onFail(Throwable t) throws ToroException,
+    protected FluentIterable<CollectionMetainfo> onFail(Throwable t) throws ToroException,
             ToroRuntimeException {
         if (t instanceof ToroException) {
             throw (ToroException) t;
@@ -31,19 +36,22 @@ public class GetCollectionsMetainfoCallable extends Job<List<CollectionMetainfo>
     }
     
     @Override
-    protected List<CollectionMetainfo> failableCall() throws ToroException,
+    protected FluentIterable<CollectionMetainfo> failableCall() throws ToroException,
             ToroRuntimeException {
-        List<CollectionMetainfo> result;
-        try {
-            result = wrapper.consumeSessionDbConnection().getCollectionsMetainfo();
+        List<CollectionMetainfo> list;
+        try (DbConnection connection = wrapper.consumeSessionDbConnection(CONNECTION_METADATA)) {
+            list = connection.getCollectionsMetainfo();
         }
         catch (ImplementationDbException ex) {
             throw new ToroRuntimeException(ex);
         }
+        catch (UserDbException ex) {
+            throw new UserToroException(ex);
+        }
         
-        report.getCollectionsMetainfoExecuted(result);
+        report.getCollectionsMetainfoExecuted(list);
         
-        return result;
+        return FluentIterable.from(list);
     }
 
     public static interface Report {

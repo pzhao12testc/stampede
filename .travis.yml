@@ -1,3 +1,8 @@
+addons:
+  apt:
+    packages:
+    - oracle-java8-installer
+  postgresql: '9.4'
 before_cache:
 - rm -rf $HOME/CACHE; find $TRAVIS_BUILD_DIR -name .ekstazi | while read line; do
   du -sh $line;         DIR=$(dirname $HOME/CACHE$line); mkdir -p $DIR; cp -r $line
@@ -14,6 +19,10 @@ before_script:
 - find $HOME/CACHE -name .ekstazi | while read line; do du -sh $line;         DIR=$(dirname
   ${line#$HOME/CACHE}); if [[ -d ${DIR#.ekstazi/} ]]; then cp -r $line $DIR; fi; done
 - export GIT_BRANCH=$TRAVIS_BRANCH
+- source ./.travis/prepare_backend.sh
+- source ./.travis/prepare_protocol.sh
+- echo $PATH
+- java -version
 cache:
   directories:
   - $HOME/CACHE
@@ -33,24 +42,22 @@ deploy:
   skip_cleanup: true
   script: mvn -B -e -T 1C -Pdeploy -DskipTests=true deploy --settings ~/settings.xml
   true:
-    jdk: oraclejdk8
-    repo: torodb/torodb
-    tags: true
-- provider: script
-  skip_cleanup: true
-  script: mvn -B -e -T 1C -Pdeploy -DskipTests=true deploy --settings ~/settings.xml
-  true:
     branch: devel
     jdk: oraclejdk8
     repo: torodb/torodb
+env:
+  matrix:
+  - Protocol=Mongo Backend=Postgres
 jdk:
 - oraclejdk8
 language: java
 script:
 - touch /tmp/NOW
 - echo GIBSTUDYSTART $(date)
-- mvn -Psafer -Passembler -B -e -T 1C verify
+- mvn -Psafer -Pintegration -Passembler -B -e -T 1C verify
 - echo GIBSTUDYEND $(date)
 - cd $TRAVIS_BUILD_DIR
 - echo TESTNUM $(find . -name TEST-*.xml -newer /tmp/NOW | wc -l)
+services:
+- postgresql
 sudo: false

@@ -1,17 +1,19 @@
 
 package com.torodb.torod.mongodb.commands.impl.diagnostic;
 
-import com.eightkdata.mongowp.mongoserver.api.safe.Command;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandRequest;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandResult;
-import com.eightkdata.mongowp.mongoserver.api.safe.impl.NonWriteCommandResult;
+import com.eightkdata.mongowp.bson.utils.DefaultBsonValues;
+import com.eightkdata.mongowp.exceptions.CommandFailed;
+import com.eightkdata.mongowp.exceptions.MongoException;
+import com.eightkdata.mongowp.server.api.Command;
+import com.eightkdata.mongowp.server.api.CommandRequest;
+import com.eightkdata.mongowp.server.api.CommandResult;
+import com.eightkdata.mongowp.server.api.impl.NonWriteCommandResult;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.CollStatsCommand.CollStatsArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.CollStatsCommand.CollStatsReply;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.CommandFailed;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.MongoException;
 import com.google.common.collect.Maps;
 import com.torodb.torod.core.connection.ToroConnection;
 import com.torodb.torod.core.connection.ToroTransaction;
+import com.torodb.torod.core.connection.TransactionMetainfo;
 import com.torodb.torod.core.dbWrapper.exceptions.ImplementationDbException;
 import com.torodb.torod.core.language.querycriteria.TrueQueryCriteria;
 import com.torodb.torod.core.pojos.NamedToroIndex;
@@ -24,7 +26,6 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import javax.inject.Inject;
-import org.bson.BsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,7 +68,7 @@ public class CollStatsImplementation extends AbstractToroCommandImplementation<C
                     .setSize(0)
                     .setStorageSize(0)
                     .setCustomStorageStats(null)
-                    .setIndexDetails(new BsonDocument())
+                    .setIndexDetails(DefaultBsonValues.EMPTY_DOC)
                     .setScale(arg.getScale())
                     .setSizeByIndex(Collections.<String, Number>emptyMap());
             if (metaCollection.isCapped()) {
@@ -86,9 +87,8 @@ public class CollStatsImplementation extends AbstractToroCommandImplementation<C
             ToroConnection connection = getToroConnection(req);
 
             try {
-                ToroTransaction transaction = connection.createTransaction();
                 int scale = replyBuilder.getScale();
-                try {
+                try (ToroTransaction transaction = connection.createTransaction(TransactionMetainfo.READ_ONLY)) {
                     Collection<? extends NamedToroIndex> indexes
                             = transaction.getIndexes(collection);
                     Map<String, Long> sizeByMap = Maps.newHashMapWithExpectedSize(indexes.size());
@@ -122,8 +122,6 @@ public class CollStatsImplementation extends AbstractToroCommandImplementation<C
                     throw new CommandFailed(command.getCommandName(), ex.getMessage(), ex);
                 } catch (ExecutionException ex) {
                     throw new CommandFailed(command.getCommandName(), ex.getMessage(), ex);
-                } finally {
-                    transaction.close();
                 }
             } catch (ImplementationDbException ex) {
                 throw new CommandFailed(command.getCommandName(), ex.getMessage(), ex);

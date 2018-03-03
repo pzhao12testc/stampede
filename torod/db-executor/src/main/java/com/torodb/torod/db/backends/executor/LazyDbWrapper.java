@@ -18,7 +18,7 @@ import com.torodb.torod.core.pojos.NamedToroIndex;
 import com.torodb.torod.core.subdocument.SplitDocument;
 import com.torodb.torod.core.subdocument.SubDocType;
 import com.torodb.torod.core.subdocument.SubDocument;
-import com.torodb.torod.core.subdocument.values.Value;
+import com.torodb.torod.core.subdocument.values.ScalarValue;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -46,14 +46,14 @@ public class LazyDbWrapper implements DbWrapper {
     }
     
     @Override
-    public DbConnection consumeSessionDbConnection() throws
+    public DbConnection consumeSessionDbConnection(DbConnection.Metainfo metainfo) throws
             ImplementationDbException {
-        return new LazySessionDbConnection();
+        return new LazySessionDbConnection(metainfo);
     }
 
     @Override
-    public DbConnection getSystemDbConnection() throws ImplementationDbException {
-        return delegate.getSystemDbConnection();
+    public DbConnection getSystemDbConnection(DbConnection.Metainfo metadata) throws ImplementationDbException {
+        return delegate.getSystemDbConnection(metadata);
     }
 
     @Override
@@ -76,10 +76,15 @@ public class LazyDbWrapper implements DbWrapper {
     @NotThreadSafe
     private class LazySessionDbConnection implements DbConnection {
         private DbConnection delegate = null;
+        private final DbConnection.Metainfo metainfo;
+
+        LazySessionDbConnection(Metainfo metainfo) {
+            this.metainfo = metainfo;
+        }
         
         private DbConnection getDelegate() throws ImplementationDbException {
             if (delegate == null) {
-                delegate = LazyDbWrapper.this.delegate.consumeSessionDbConnection();
+                delegate = LazyDbWrapper.this.delegate.consumeSessionDbConnection(metainfo);
             }
             return delegate;
         }
@@ -135,7 +140,7 @@ public class LazyDbWrapper implements DbWrapper {
         public void insertSubdocuments(
                 String collection, 
                 SubDocType subDocType, 
-                Iterator<? extends SubDocument> subDocuments) {
+                Iterable<? extends SubDocument> subDocuments) {
             try {
                 getDelegate().insertSubdocuments(collection, subDocType, subDocuments);
             }
@@ -276,7 +281,7 @@ public class LazyDbWrapper implements DbWrapper {
         }
 
         @Override
-        public Iterator<ValueRow<Value>> select(String query) {
+        public Iterator<ValueRow<ScalarValue<?>>> select(String query) {
             try {
                 return getDelegate().select(query);
             } catch (ImplementationDbException ex) {

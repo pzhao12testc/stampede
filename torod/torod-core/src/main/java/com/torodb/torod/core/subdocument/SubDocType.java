@@ -22,7 +22,6 @@ package com.torodb.torod.core.subdocument;
 
 import java.io.Serializable;
 import java.util.*;
-import javax.annotation.Nonnull;
 import javax.annotation.concurrent.Immutable;
 
 /**
@@ -33,9 +32,11 @@ public class SubDocType implements Serializable {
     private static final long serialVersionUID = 1L;
 
     private final Map<String, SubDocAttribute> attributes;
+    private final int hash;
 
     private SubDocType(Map<String, SubDocAttribute> attributes) {
         this.attributes = Collections.unmodifiableMap(attributes);
+        this.hash = attributes.hashCode();
     }
 
     public Collection<SubDocAttribute> getAttributes() {
@@ -71,8 +72,6 @@ public class SubDocType implements Serializable {
 
     @Override
     public int hashCode() {
-        int hash = 7;
-        hash = 79 * hash + (this.attributes != null ? this.attributes.hashCode() : 0);
         return hash;
     }
 
@@ -81,12 +80,24 @@ public class SubDocType implements Serializable {
         if (obj == null) {
             return false;
         }
+        if (obj == this) {
+            return true;
+        }
         if (getClass() != obj.getClass()) {
             return false;
         }
         final SubDocType other = (SubDocType) obj;
-        if (this.attributes != other.attributes && (this.attributes == null || !this.attributes.equals(other.attributes))) {
+        if (other.hash != this.hash) {
             return false;
+        }
+        if (other.attributes.size() != this.attributes.size()) {
+            return false;
+        }
+        for (SubDocAttribute thisAtt : this.attributes.values()) {
+            SubDocAttribute otherAtt = other.getAttribute(thisAtt.getKey());
+            if (!otherAtt.equalsWithSameKey(thisAtt)) {
+                return false;
+            }
         }
         return true;
     }
@@ -95,6 +106,9 @@ public class SubDocType implements Serializable {
 
         private final Map<String, SubDocAttribute> attributes = new HashMap<String, SubDocAttribute>();
         private boolean built;
+
+        Builder() {
+        }
 
         public Builder add(SubDocAttribute attribute) {
             if (built) {

@@ -20,23 +20,28 @@
 
 package com.torodb.torod.d2r;
 
-import com.torodb.kvdocument.types.GenericType;
-import com.torodb.kvdocument.values.DocValue;
-import com.torodb.kvdocument.values.ObjectValue;
+import com.google.common.base.Function;
+import com.torodb.kvdocument.values.*;
+import com.torodb.kvdocument.values.heap.*;
 import com.torodb.torod.core.config.DocumentBuilderFactory;
 import com.torodb.torod.core.d2r.D2RTranslator;
 import com.torodb.torod.core.dbMetaInf.DbMetaInformationCache;
 import com.torodb.torod.core.executor.SessionExecutor;
 import com.torodb.torod.core.subdocument.SplitDocument;
+import com.torodb.torod.core.subdocument.SubDocType;
 import com.torodb.torod.core.subdocument.SubDocument;
 import com.torodb.torod.core.subdocument.ToroDocument;
 import com.torodb.torod.core.subdocument.structure.ArrayStructure;
 import com.torodb.torod.core.subdocument.structure.DocStructure;
 import com.torodb.torod.core.subdocument.structure.StructureElement;
-import com.torodb.torod.core.subdocument.values.StringValue;
 import com.torodb.torod.core.subdocument.values.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
 import javax.inject.Inject;
+import javax.inject.Provider;
 
 /**
  *
@@ -45,17 +50,17 @@ public class DefaultD2RTranslator implements D2RTranslator {
 
     private final DbMetaInformationCache cache;
     private final DocumentSplitter splitter;
-    private final DocumentBuilderFactory documentBuilderFactory;
-
-    private static final SubDocValueToDocValueTranslator valueTranslator = new SubDocValueToDocValueTranslator();
+    
+    private final Function<SplitDocument, ToroDocument> toDocFunction;
 
     @Inject
     public DefaultD2RTranslator(
             DbMetaInformationCache cache,
-            DocumentBuilderFactory documentBuilderFactory) {
+            DocumentBuilderFactory documentBuilderFactory,
+            Provider<SubDocType.Builder> subDocTypeBuilderProvider) {
         this.cache = cache;
-        this.splitter = new DocumentSplitter(cache);
-        this.documentBuilderFactory = documentBuilderFactory;
+        this.splitter = new DocumentSplitter(cache, subDocTypeBuilderProvider);
+        this.toDocFunction = new ToDocFunction(documentBuilderFactory);
     }
 
     @Override
@@ -71,166 +76,208 @@ public class DefaultD2RTranslator implements D2RTranslator {
     }
 
     @Override
-    public SplitDocument translate(SessionExecutor sessionExecutor, String collection, ToroDocument document) {
-        cache.createCollection(sessionExecutor, collection, null);
-
-        final SplitDocument splitDocument = splitter.split(sessionExecutor, collection, document);
-
-        return splitDocument;
+    public Function<SplitDocument, ToroDocument> getToDocumentFunction() {
+        return toDocFunction;
     }
 
     @Override
-    public ToroDocument translate(SplitDocument splitDocument) {
-        final ToroDocument.DocumentBuilder docBuilder = documentBuilderFactory.newDocBuilder();
+    public Function<ToroDocument, SplitDocument> getToRelationalFunction(
+            final SessionExecutor sessionExecutor,
+            final String collection) {
+        return new Function<ToroDocument, SplitDocument>() {
+            @Override
+            public SplitDocument apply(@Nonnull ToroDocument input) {
+                cache.createCollection(sessionExecutor, collection, null);
 
-        SubDocValueToDocValueTranslator.Argument arg = new SubDocValueToDocValueTranslator.Argument(splitDocument, splitDocument.getRoot());
-        docBuilder.setRoot(translateDocStructure(arg));
+                final SplitDocument splitDocument = splitter.split(
+                        sessionExecutor,
+                        collection,
+                        input
+                );
 
-        return docBuilder.build();
+                return splitDocument;
+            }
+        };
     }
 
-    private static ObjectValue translateDocStructure(SubDocValueToDocValueTranslator.Argument arg) {
-        DocStructure structure = (DocStructure) arg.structure;
-        SplitDocument splitDocument = arg.splitDoc;
+    private static class ToDocFunction implements Function<SplitDocument, ToroDocument> {
 
-        ObjectValue.Builder objBuilder = new ObjectValue.Builder();
-        SubDocument subDoc = splitDocument.getSubDocuments().get(structure.getType(), structure.getIndex());
+        private static final SubDocValueToDocValueTranslator VALUE_TRANSLATOR = new SubDocValueToDocValueTranslator();
+        private final DocumentBuilderFactory documentBuilderFactory;
 
-        for (String keyName : subDoc.getAttributes().keySet()) {
-            //childStructure will be null if the child is a scalar
-            StructureElement childStructure = structure.getElements().get(keyName);
-            arg.structure = childStructure;
-
-            objBuilder.putValue(keyName, subDoc.getValue(keyName).accept(valueTranslator, arg));
+        private ToDocFunction(DocumentBuilderFactory documentBuilderFactory) {
+            this.documentBuilderFactory = documentBuilderFactory;
         }
-        for (Map.Entry<String, StructureElement> entry : structure.getElements().entrySet()) {
-            if (entry.getValue() instanceof DocStructure) { //arrays has already been mapped as values
-                StructureElement childStructure = structure.getElements().get(entry.getKey());
+
+        @Override
+        public ToroDocument apply(@Nonnull SplitDocument input) {
+            final ToroDocument.DocumentBuilder docBuilder = documentBuilderFactory.newDocBuilder();
+
+            SubDocValueToDocValueTranslator.Argument arg
+                    = new SubDocValueToDocValueTranslator.Argument(input, input.getRoot());
+            docBuilder.setRoot(translateDocStructure(arg));
+
+            return docBuilder.build();
+        }
+
+        private static KVDocument translateDocStructure(SubDocValueToDocValueTranslator.Argument arg) {
+            DocStructure structure = (DocStructure) arg.structure;
+            SplitDocument splitDocument = arg.splitDoc;
+
+            LinkedHashMap<String, KVValue<?>> map = new LinkedHashMap<>();
+            SubDocument subDoc = splitDocument.getSubDocuments().get(
+                    structure.getType(), structure.getIndex());
+
+            for (String keyName : subDoc.getType().getAttributeKeys()) {
+                //childStructure will be null if the child is a scalar
+                StructureElement childStructure
+                        = structure.getElements().get(keyName);
                 arg.structure = childStructure;
 
-                objBuilder.putValue(
-                        entry.getKey(),
-                        translateDocStructure(arg)
+                map.put(
+                        keyName,
+                        subDoc.getValue(keyName).accept(VALUE_TRANSLATOR, arg)
                 );
             }
-        }
-        return objBuilder.build();
-    }
+            for (Map.Entry<String, StructureElement> entry : structure.getElements().entrySet()) {
+                if (entry.getValue() instanceof DocStructure) { //arrays has already been mapped as values
+                    StructureElement childStructure
+                            = structure.getElements().get(entry.getKey());
+                    arg.structure = childStructure;
 
-    private static class SubDocValueToDocValueTranslator implements ValueVisitor<DocValue, SubDocValueToDocValueTranslator.Argument> {
-
-        @Override
-        public DocValue visit(BooleanValue value, Argument arg) {
-            if (value.getValue()) {
-                return com.torodb.kvdocument.values.BooleanValue.TRUE;
-            }
-            return com.torodb.kvdocument.values.BooleanValue.FALSE;
-        }
-
-        @Override
-        public DocValue visit(NullValue value, Argument arg) {
-            return com.torodb.kvdocument.values.NullValue.INSTANCE;
-        }
-
-        @Override
-        public DocValue visit(ArrayValue value, Argument arg) {
-            com.torodb.kvdocument.values.ArrayValue.Builder builder = new com.torodb.kvdocument.values.ArrayValue.Builder();
-
-            ArrayStructure structure = (ArrayStructure) arg.structure;
-
-            for (Value e : value.getValue()) {
-                if (e instanceof ArrayValue) { //arrays will be mapped later
-                    builder.add(com.torodb.kvdocument.values.NullValue.INSTANCE);
-                } else {
-                    builder.add((DocValue) e.accept(this, arg));
+                    map.put(
+                            entry.getKey(),
+                            translateDocStructure(arg)
+                    );
                 }
             }
+            return new MapKVDocument(map);
+        }
 
-            for (Map.Entry<Integer, StructureElement> entry : structure.getElements().entrySet()) {
-                StructureElement element = entry.getValue();
-                arg.structure = element;
+        private static class SubDocValueToDocValueTranslator implements
+                ScalarValueVisitor<KVValue<?>, SubDocValueToDocValueTranslator.Argument> {
 
-                int index = entry.getKey(); //array structure indexes are 0 based
+            @Override
+            public KVValue<?> visit(ScalarBoolean value, Argument arg) {
+                if (value.getValue()) {
+                    return KVBoolean.TRUE;
+                }
+                return KVBoolean.FALSE;
+            }
 
-                if (element instanceof DocStructure) {
-                    assert value.get(index) instanceof NullValue;
+            @Override
+            public KVValue<?> visit(ScalarNull value, Argument arg) {
+                return KVNull.getInstance();
+            }
 
-                    ObjectValue translated = translateDocStructure(arg);
-                    builder.setValue(index, translated);
-                } else if (element instanceof ArrayStructure) {
-                    assert value.get(index) instanceof ArrayValue;
+            @Override
+            public KVValue<?> visit(ScalarArray value, Argument arg) {
+                List<KVValue<?>> list = new ArrayList<>(value.size());
 
-                    ArrayValue childValue = (ArrayValue) value.get(index);
+                ArrayStructure structure = (ArrayStructure) arg.structure;
 
-                    builder.setValue(index, visit(childValue, arg));
-                } else {
-                    throw new AssertionError(this.getClass() + " doesn't recognizes " + element + " as a structure");
+                for (ScalarValue<?> e : value.getValue()) {
+                    if (e instanceof ScalarArray) { //arrays will be mapped later
+                        list.add(KVNull.getInstance());
+                    } else {
+                        list.add((KVValue<?>) e.accept(this, arg));
+                    }
+                }
+
+                for (Map.Entry<Integer, StructureElement> entry : structure.getElements().entrySet()) {
+                    StructureElement element = entry.getValue();
+                    arg.structure = element;
+
+                    int index = entry.getKey(); //array structure indexes are 0 based
+
+                    if (element instanceof DocStructure) {
+                        assert value.get(index) instanceof ScalarNull;
+
+                        KVDocument translated = translateDocStructure(arg);
+                        list.set(index, translated);
+                    } else if (element instanceof ArrayStructure) {
+                        assert value.get(index) instanceof ScalarArray;
+
+                        ScalarArray childValue = (ScalarArray) value.get(index);
+
+                        list.set(index, visit(childValue, arg));
+                    } else {
+                        throw new AssertionError(this.getClass()
+                                + " doesn't recognizes " + element
+                                + " as a structure");
+                    }
+                }
+
+                KVArray result = new ListKVArray(list);
+
+                assert result.size() == value.size();
+
+                return result;
+            }
+
+            @Override
+            public KVValue<?> visit(ScalarInteger value, Argument arg) {
+                return KVInteger.of(value.getValue());
+            }
+
+            @Override
+            public KVValue<?> visit(ScalarLong value, Argument arg) {
+                return KVLong.of(value.getValue());
+            }
+
+            @Override
+            public KVValue<?> visit(ScalarDouble value, Argument arg) {
+                return KVDouble.of(value.getValue());
+            }
+
+            @Override
+            public KVValue<?> visit(ScalarString value, Argument arg) {
+                return new StringKVString(value.getValue());
+            }
+
+            @Override
+            public KVValue<?> visit(ScalarMongoObjectId value, Argument arg) {
+                return new ByteArrayKVMongoObjectId(value.getArrayValue());
+            }
+
+            @Override
+            public KVValue<?> visit(ScalarMongoTimestamp value, Argument arg) {
+                return new DefaultKVMongoTimestamp(value.getSecondsSinceEpoch(), value.getOrdinal());
+            }
+
+            @Override
+            public KVValue<?> visit(ScalarInstant value, Argument arg) {
+                return new LongKVInstant(value.getMillisFromUnix());
+            }
+
+            @Override
+            public KVValue<?> visit(ScalarDate value, Argument arg) {
+                return new LocalDateKVDate(value.getValue());
+            }
+
+            @Override
+            public KVValue<?> visit(ScalarTime value, Argument arg) {
+                return new LocalTimeKVTime(value.getValue());
+            }
+
+            @Override
+            public KVValue<?> visit(ScalarBinary value, Argument arg) {
+                return new ByteSourceKVBinary(value.getSubtype(), value.getCategory(), value.getByteSource());
+            }
+
+            public static class Argument {
+
+                private final SplitDocument splitDoc;
+                private StructureElement structure;
+
+                public Argument(SplitDocument splitDoc, StructureElement structure) {
+                    this.splitDoc = splitDoc;
+                    this.structure = structure;
                 }
             }
-
-            builder.setElementType(GenericType.INSTANCE);
-
-            com.torodb.kvdocument.values.ArrayValue result = builder.build();
-
-            assert result.size() == value.size();
-
-            return result;
         }
 
-        @Override
-        public DocValue visit(IntegerValue value, Argument arg) {
-            return new com.torodb.kvdocument.values.IntegerValue(value.getValue());
-        }
-
-        @Override
-        public DocValue visit(LongValue value, Argument arg) {
-            return new com.torodb.kvdocument.values.LongValue(value.getValue());
-        }
-
-        @Override
-        public DocValue visit(DoubleValue value, Argument arg) {
-            return new com.torodb.kvdocument.values.DoubleValue(value.getValue());
-        }
-
-        @Override
-        public DocValue visit(StringValue value, Argument arg) {
-            return new com.torodb.kvdocument.values.StringValue(value.getValue());
-        }
-
-        @Override
-        public DocValue visit(TwelveBytesValue value, Argument arg) {
-            return new com.torodb.kvdocument.values.TwelveBytesValue(value.getValue());
-        }
-
-        @Override
-        public DocValue visit(DateTimeValue value, Argument arg) {
-            return new com.torodb.kvdocument.values.DateTimeValue(value.getValue());
-        }
-
-        @Override
-        public DocValue visit(DateValue value, Argument arg) {
-            return new com.torodb.kvdocument.values.DateValue(value.getValue());
-        }
-
-        @Override
-        public DocValue visit(TimeValue value, Argument arg) {
-            return new com.torodb.kvdocument.values.TimeValue(value.getValue());
-        }
-
-        @Override
-        public DocValue visit(PatternValue value, Argument arg) {
-            return new com.torodb.kvdocument.values.PatternValue(value.getValue());
-        }
-
-        public static class Argument {
-
-            private final SplitDocument splitDoc;
-            private StructureElement structure;
-
-            public Argument(SplitDocument splitDoc, StructureElement structure) {
-                this.splitDoc = splitDoc;
-                this.structure = structure;
-            }
-        }
     }
+
+    
 }

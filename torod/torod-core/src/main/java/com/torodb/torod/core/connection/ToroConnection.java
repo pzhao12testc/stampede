@@ -20,6 +20,7 @@
 
 package com.torodb.torod.core.connection;
 
+import com.google.common.collect.FluentIterable;
 import com.torodb.torod.core.Session;
 import com.torodb.torod.core.cursors.CursorId;
 import com.torodb.torod.core.cursors.UserCursor;
@@ -29,7 +30,6 @@ import com.torodb.torod.core.exceptions.ToroException;
 import com.torodb.torod.core.language.projection.Projection;
 import com.torodb.torod.core.language.querycriteria.QueryCriteria;
 import com.torodb.torod.core.pojos.CollectionMetainfo;
-import com.torodb.torod.core.subdocument.ToroDocument;
 import java.io.Closeable;
 import java.util.Collection;
 import javax.annotation.Nonnegative;
@@ -51,7 +51,7 @@ public interface ToroConnection extends Closeable {
     public void close();
     
     @Nonnull
-    public ToroTransaction createTransaction() throws ImplementationDbException;
+    public ToroTransaction createTransaction(TransactionMetainfo metainfo) throws ImplementationDbException;
 
     @Nonnull
     public UserCursor getCursor(CursorId cursorId) throws CursorNotFoundException;
@@ -69,7 +69,7 @@ public interface ToroConnection extends Closeable {
      * @throws ToroException
      */
     @Nonnull
-    public UserCursor<ToroDocument> openUnlimitedCursor(
+    public UserCursor openUnlimitedCursor(
             @Nonnull String collection,
             @Nullable QueryCriteria queryCriteria,
             @Nullable Projection projection,
@@ -92,7 +92,7 @@ public interface ToroConnection extends Closeable {
      * @throws ToroException
      */
     @Nonnull
-    public UserCursor<ToroDocument> openLimitedCursor(
+    public UserCursor openLimitedCursor(
             @Nonnull String collection,
             @Nullable QueryCriteria queryCriteria,
             @Nullable Projection projection,
@@ -103,12 +103,12 @@ public interface ToroConnection extends Closeable {
     ) throws ToroException;
     
     /**
-     * Opens a new cursor that iterates over all collection metainformation on
+     * Creates an iterator that iterates over all collection metainformation on
      * the database.
      * @return 
      */
     @Nonnull
-    public UserCursor<CollectionMetainfo> openCollectionsMetainfoCursor();
+    public FluentIterable<CollectionMetainfo> getCollectionsMetainfoCursor() throws ToroException;
     
     @Nonnull
     public Session getSession();

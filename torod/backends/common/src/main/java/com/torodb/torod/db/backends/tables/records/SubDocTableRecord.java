@@ -20,18 +20,19 @@
 
 package com.torodb.torod.db.backends.tables.records;
 
+import com.torodb.torod.core.subdocument.SimpleSubDocTypeBuilderProvider;
 import com.torodb.torod.core.subdocument.SubDocAttribute;
 import com.torodb.torod.core.subdocument.SubDocType;
 import com.torodb.torod.core.subdocument.SubDocument;
-import com.torodb.torod.core.subdocument.values.Value;
+import com.torodb.torod.core.subdocument.values.ScalarValue;
 import com.torodb.torod.db.backends.tables.SubDocHelper;
 import com.torodb.torod.db.backends.tables.SubDocTable;
+import java.io.IOException;
+import java.io.Serializable;
+import javax.annotation.Nullable;
+import javax.inject.Provider;
 import org.jooq.Field;
 import org.jooq.impl.TableRecordImpl;
-
-import javax.annotation.Nullable;
-import java.io.Serializable;
-import java.util.Map;
 
 /**
  *
@@ -41,6 +42,7 @@ public class SubDocTableRecord extends TableRecordImpl<SubDocTableRecord> {
     private static final long serialVersionUID = -556457916;
 
     private final SubDocTable table;
+    private transient Provider<SubDocType.Builder> subDocTypeBuilderProvider;
 
     // -------------------------------------------------------------------------
     // Constructors
@@ -50,9 +52,17 @@ public class SubDocTableRecord extends TableRecordImpl<SubDocTableRecord> {
      * <p>
      * @param table
      */
-    public SubDocTableRecord(SubDocTable table) {
+    public SubDocTableRecord(SubDocTable table, Provider<SubDocType.Builder> subDocTypeBuilderProvider) {
         super(table);
         this.table = table;
+        this.subDocTypeBuilderProvider = subDocTypeBuilderProvider;
+    }
+
+    private void readObject(java.io.ObjectInputStream stream)
+            throws IOException, ClassNotFoundException {
+        //TODO: Try to make this class non-serializable!
+        stream.defaultReadObject();
+        subDocTypeBuilderProvider = new SimpleSubDocTypeBuilderProvider();
     }
 
     public void setDid(Integer value) {
@@ -79,23 +89,22 @@ public class SubDocTableRecord extends TableRecordImpl<SubDocTableRecord> {
                     + "different than the type of the given subdocument (" + subdoc.getType() + ")");
         }
 
-        for (Map.Entry<String, ? extends SubDocAttribute> entry : subdoc.getAttributes().entrySet()) {
-            String fieldName = table.subDocHelper().toColumnName(entry.getKey());
+        for (String key : subdoc.getType().getAttributeKeys()) {
+            String fieldName = table.subDocHelper().toColumnName(key);
 
             //@gortiz: I think we can not use types here!
             Field f = field(fieldName);
-            Value v = subdoc.getValue(entry.getKey());
+            ScalarValue<?> v = subdoc.getValue(key);
 
             setValue(f, v);
         }
     }
 
     public SubDocument getSubDoc() {
-        SubDocument.Builder builder = new SubDocument.Builder();
-
         SubDocType subDocType = table.getSubDocType();
+        SubDocument.Builder builder = SubDocument.Builder.withKnownType(subDocType);
 
-        for (Field<? extends Value<? extends Serializable>> field : table.getSubDocFields()) {
+        for (Field<? extends ScalarValue<? extends Serializable>> field : table.getSubDocFields()) {
             String attName = SubDocHelper.toAttributeName(field.getName());
 
             SubDocAttribute att = subDocType.getAttribute(attName);

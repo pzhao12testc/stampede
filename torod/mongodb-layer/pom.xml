@@ -9,7 +9,7 @@
     <parent>
         <groupId>com.torodb.torod</groupId>
         <artifactId>torod-pom</artifactId>
-        <version>0.40-alpha1</version>
+        <version>0.40-alpha2</version>
     </parent>
 
     <artifactId>mongodb-layer</artifactId>
@@ -27,21 +27,21 @@
         </dependency>
         <dependency>
             <groupId>com.torodb.kvdocument</groupId>
-            <artifactId>mongo-converter</artifactId>
+            <artifactId>mongowp-converter</artifactId>
             <version>${torod.version}</version>
         </dependency>
 
         <dependency>
             <groupId>com.8kdata.mongowp</groupId>
+            <artifactId>mongowp-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.8kdata.mongowp.server</groupId>
             <artifactId>mongo-server-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.8kdata.mongowp</groupId>
-            <artifactId>mongo-server</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.8kdata.mongowp</groupId>
-            <artifactId>mongo-server-api-safe</artifactId>
+            <groupId>com.8kdata.mongowp.server</groupId>
+            <artifactId>mongo-server-core</artifactId>
         </dependency>
         <dependency>
             <groupId>com.8kdata.mongowp.api.safe.library</groupId>
@@ -51,15 +51,11 @@
             <groupId>com.8kdata.mongowp.client</groupId>
             <artifactId>core</artifactId>
         </dependency>
-        <dependency>
+<!--        <dependency>
             <groupId>com.8kdata.mongowp.client</groupId>
             <artifactId>driver-wrapper</artifactId>
-        </dependency>
+        </dependency>-->
 
-        <dependency>
-            <groupId>com.google.inject</groupId>
-            <artifactId>guice</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>

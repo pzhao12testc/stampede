@@ -21,20 +21,10 @@
 package com.torodb;
 
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.util.PropertyResourceBundle;
-import java.util.ResourceBundle;
-
-import org.slf4j.LoggerFactory;
-
+import ch.qos.logback.classic.Logger;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.internal.Console;
-import com.eightkdata.mongowp.mongoserver.MongoServer;
+import com.eightkdata.mongowp.server.wp.NettyMongoServer;
 import com.google.common.base.Charsets;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
@@ -43,21 +33,16 @@ import com.torodb.config.model.Config;
 import com.torodb.config.model.backend.postgres.Postgres;
 import com.torodb.config.model.generic.LogLevel;
 import com.torodb.config.util.ConfigUtils;
-import com.torodb.di.BackendModule;
-import com.torodb.di.ConfigModule;
-import com.torodb.di.ConnectionModule;
-import com.torodb.di.D2RModule;
-import com.torodb.di.DbMetaInformationCacheModule;
-import com.torodb.di.ExecutorModule;
-import com.torodb.di.ExecutorServiceModule;
-import com.torodb.di.MongoConfigModule;
-import com.torodb.di.MongoLayerModule;
+import com.torodb.di.*;
 import com.torodb.torod.core.Torod;
 import com.torodb.torod.core.exceptions.TorodStartupException;
 import com.torodb.torod.mongodb.repl.ReplCoordinator;
 import com.torodb.util.LogbackUtils;
-
-import ch.qos.logback.classic.Logger;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.PropertyResourceBundle;
+import java.util.ResourceBundle;
+import org.slf4j.LoggerFactory;
 
 /**
  * ToroDB's entry point
@@ -118,33 +103,10 @@ public class Main {
 			}
 		}
 		
-		if (config.getBackend().isPostgresLike()) {
-			Postgres postgres = config.getBackend().asPostgres();
-
-			File toroPass = new File(postgres.getToropassFile());
-			if (toroPass.exists() && toroPass.canRead() && toroPass.isFile()) {
-				BufferedReader br = new BufferedReader(
-						new InputStreamReader(new FileInputStream(toroPass), Charsets.UTF_8));
-				String line;
-				int index = 0;
-				while ((line = br.readLine()) != null) {
-					index++;
-					String[] toroPassChunks = line.split(":");
-					if (toroPassChunks.length != 5) {
-						LOGGER.warn("Wrong format at line " + index + " of file " + postgres.getToropassFile());
-						continue;
-					}
-
-					if ((toroPassChunks[0].equals("*") || toroPassChunks[0].equals(postgres.getHost()))
-							&& (toroPassChunks[1].equals("*")
-									|| toroPassChunks[1].equals(String.valueOf(postgres.getPort())))
-							&& (toroPassChunks[2].equals("*") || toroPassChunks[2].equals(postgres.getDatabase()))
-							&& (toroPassChunks[3].equals("*") || toroPassChunks[3].equals(postgres.getUser()))) {
-						postgres.setPassword(toroPassChunks[4]);
-					}
-				}
-				br.close();
-			}
+		ConfigUtils.parseToropassFile(config);
+		
+        if (config.getBackend().isPostgresLike()) {
+            Postgres postgres = config.getBackend().asPostgres();
 
 			if (cliConfig.askForPassword()) {
 				console.print("Database user password:");
@@ -153,6 +115,7 @@ public class Main {
 		}
 		
 		Injector injector = Guice.createInjector(
+                new CoreModule(),
 				new ConfigModule(config),
 				new BackendModule(config),
 				new ConfigModule(config),
@@ -167,7 +130,7 @@ public class Main {
 
 		try {
 			final Torod torod = injector.getInstance(Torod.class);
-			final MongoServer server = injector.getInstance(MongoServer.class);
+			final NettyMongoServer server = injector.getInstance(NettyMongoServer.class);
 			final DefaultBuildProperties buildProperties = injector.getInstance(DefaultBuildProperties.class);
 			final ReplCoordinator replCoord = injector.getInstance(ReplCoordinator.class);
 			final Shutdowner shutdowner = injector.getInstance(Shutdowner.class);
@@ -185,24 +148,23 @@ public class Main {
 				@Override
 				public void run() {
 					LOGGER.info("Starting ToroDB v" + buildProperties.getFullVersion()
-							+ " listening on port " + config.getBackend().asPostgres().getPort());
+							+ " listening on port " + config.getProtocol().getMongo().getNet().getPort());
 					Main.run(torod, server, replCoord);
 				}
 			};
 			serverThread.start();
 		} catch (ProvisionException pe) {
-			String causeMessage;
-			if (pe.getCause() != null) {
+            LOGGER.error("Fatal error on initialization", pe);
+			String causeMessage = pe.getMessage();
+			if (causeMessage == null) {
 				causeMessage = pe.getCause().getMessage();
-			} else {
-				causeMessage = pe.getMessage();
 			}
 			JCommander.getConsole().println(causeMessage);
 			System.exit(1);
 		}
 	}
 
-	private static void run(final Torod torod, final MongoServer server, final ReplCoordinator replCoord) {
+	private static void run(final Torod torod, final NettyMongoServer server, final ReplCoordinator replCoord) {
 		try {
 			torod.start();
 		} catch (TorodStartupException e) {
@@ -211,7 +173,7 @@ public class Main {
 		}
 		replCoord.startAsync();
 		replCoord.awaitRunning();
-		server.run();
+		server.startAsync().awaitRunning();
 	}
 
 	private static String readPwd() throws IOException {

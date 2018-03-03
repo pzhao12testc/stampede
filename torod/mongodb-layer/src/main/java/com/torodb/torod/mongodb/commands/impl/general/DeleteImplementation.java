@@ -1,20 +1,20 @@
 
 package com.torodb.torod.mongodb.commands.impl.general;
 
-import com.eightkdata.mongowp.mongoserver.api.safe.Command;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandImplementation;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandRequest;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandResult;
-import com.eightkdata.mongowp.mongoserver.api.safe.impl.SimpleWriteOpResult;
-import com.eightkdata.mongowp.mongoserver.api.safe.impl.WriteCommandResult;
+import com.eightkdata.mongowp.ErrorCode;
+import com.eightkdata.mongowp.OpTime;
+import com.eightkdata.mongowp.exceptions.CommandFailed;
+import com.eightkdata.mongowp.exceptions.MongoException;
+import com.eightkdata.mongowp.exceptions.UnknownErrorException;
+import com.eightkdata.mongowp.server.api.Command;
+import com.eightkdata.mongowp.server.api.CommandImplementation;
+import com.eightkdata.mongowp.server.api.CommandRequest;
+import com.eightkdata.mongowp.server.api.CommandResult;
+import com.eightkdata.mongowp.server.api.impl.SimpleWriteOpResult;
+import com.eightkdata.mongowp.server.api.impl.WriteCommandResult;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.general.DeleteCommand.DeleteArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.general.DeleteCommand.DeleteStatement;
-import com.eightkdata.mongowp.mongoserver.callback.WriteOpResult;
-import com.eightkdata.mongowp.mongoserver.pojos.OpTime;
-import com.eightkdata.mongowp.mongoserver.protocol.MongoWP.ErrorCode;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.CommandFailed;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.MongoException;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.UnknownErrorException;
+import com.eightkdata.mongowp.server.callback.WriteOpResult;
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -24,6 +24,7 @@ import com.torodb.torod.core.WriteFailMode;
 import com.torodb.torod.core.connection.DeleteResponse;
 import com.torodb.torod.core.connection.ToroConnection;
 import com.torodb.torod.core.connection.ToroTransaction;
+import com.torodb.torod.core.connection.TransactionMetainfo;
 import com.torodb.torod.core.dbWrapper.exceptions.ImplementationDbException;
 import com.torodb.torod.core.language.operations.DeleteOperation;
 import com.torodb.torod.core.language.querycriteria.QueryCriteria;
@@ -70,14 +71,8 @@ public class DeleteImplementation implements CommandImplementation<DeleteArgumen
 
 		ToroConnection connection = context.getToroConnection();
 
-        ToroTransaction transaction;
-        try {
-            transaction = connection.createTransaction();
-        } catch (ImplementationDbException ex) {
-            throw new UnknownErrorException(ex.getLocalizedMessage());
-        }
-
-        try {
+        try (ToroTransaction transaction
+                = connection.createTransaction(TransactionMetainfo.NOT_READ_ONLY)) {
             WriteFailMode writeFailMode = toWriteFailModeFunction.apply(arg.getWriteConcern());
 
             List<DeleteOperation> deletes = Lists.newArrayList(
@@ -103,9 +98,9 @@ public class DeleteImplementation implements CommandImplementation<DeleteArgumen
                 String errMsg = "Something went wrong";
                 writeOpResult = new SimpleWriteOpResult(errorCode, errMsg, null, null, optime);
             }
-            return new WriteCommandResult<Long>(response.getDeleted(), writeOpResult);
-        } finally {
-            transaction.close();
+            return new WriteCommandResult<>(response.getDeleted(), writeOpResult);
+        } catch (ImplementationDbException ex) {
+            throw new UnknownErrorException(ex);
         }
     }
 

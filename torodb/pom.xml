@@ -9,7 +9,7 @@
     <parent>
         <groupId>com.torodb</groupId>
         <artifactId>torodb-parent</artifactId>
-        <version>0.40-alpha1</version>
+        <version>0.40-alpha2</version>
     </parent>
 
     <artifactId>torodb</artifactId>
@@ -55,11 +55,11 @@
             <artifactId>torod-core</artifactId>
             <version>${torod.version}</version>
         </dependency>
-        <dependency>
+<!--        <dependency>
             <groupId>com.torodb.kvdocument</groupId>
             <artifactId>mongo-converter</artifactId>
             <version>${torod.version}</version>
-        </dependency>
+        </dependency>-->
         <dependency>
             <groupId>com.torodb.torod</groupId>
             <artifactId>mongodb-layer</artifactId>
@@ -67,16 +67,16 @@
         </dependency>
 
         <dependency>
-            <groupId>com.8kdata.mongowp</groupId>
+            <groupId>com.8kdata.mongowp.server</groupId>
             <artifactId>mongo-server-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.8kdata.mongowp</groupId>
-            <artifactId>mongo-server</artifactId>
+            <groupId>com.8kdata.mongowp.server</groupId>
+            <artifactId>mongo-server-core</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.8kdata.mongowp</groupId>
-            <artifactId>mongo-server-api-safe</artifactId>
+            <groupId>com.8kdata.mongowp.client</groupId>
+            <artifactId>driver-wrapper</artifactId>
         </dependency>
 
         <dependency>
@@ -153,6 +153,10 @@
             <artifactId>junit</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.8kdata.mongowp.server</groupId>
+            <artifactId>wp-layer</artifactId>
+        </dependency>
     </dependencies>
 
     <build>        
@@ -170,6 +174,26 @@
                 </executions>
             </plugin>
         </plugins>
+
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <executions>
+                        <execution>
+                            <id>integration-tests</id>
+                            <phase>integration-test</phase>
+                            <configuration>
+                                <systemProperties>
+                                    <torodb-integration-config-yml>${torodb-integration-config-yml}</torodb-integration-config-yml>
+                                </systemProperties>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
 
         <resources>
             <resource>

@@ -22,31 +22,28 @@ package com.torodb.torod.db.backends.tables;
 
 import com.google.common.collect.AbstractIterator;
 import com.torodb.torod.core.exceptions.ToroImplementationException;
-import com.torodb.torod.core.subdocument.BasicType;
+import com.torodb.torod.core.subdocument.ScalarType;
 import com.torodb.torod.core.subdocument.SubDocAttribute;
 import com.torodb.torod.core.subdocument.SubDocType;
-import com.torodb.torod.core.subdocument.values.Value;
+import com.torodb.torod.core.subdocument.values.ScalarValue;
 import com.torodb.torod.db.backends.DatabaseInterface;
 import com.torodb.torod.db.backends.converters.jooq.SubdocValueConverter;
 import com.torodb.torod.db.backends.converters.jooq.ValueToJooqConverterProvider;
 import com.torodb.torod.db.backends.meta.IndexStorage;
 import com.torodb.torod.db.backends.tables.records.SubDocTableRecord;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-import org.jooq.*;
-import org.jooq.impl.AbstractKeys;
-import org.jooq.impl.DSL;
-import org.jooq.impl.SQLDataType;
-import org.jooq.impl.TableImpl;
-
-import javax.annotation.Nonnull;
-import javax.inject.Inject;
 import java.io.Serializable;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Iterator;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import javax.annotation.Nonnull;
+import javax.inject.Provider;
+import org.jooq.*;
+import org.jooq.impl.AbstractKeys;
+import org.jooq.impl.DSL;
+import org.jooq.impl.SQLDataType;
+import org.jooq.impl.TableImpl;
 
 /**
  *
@@ -54,7 +51,6 @@ import java.util.regex.Pattern;
 public class SubDocTable extends TableImpl<SubDocTableRecord> {
 
     private static final long serialVersionUID = 1197457693;
-    private static final Pattern TABLE_ID_PATTERN = Pattern.compile("t_([0-9]+)$");
     public static final String DID_COLUMN_NAME = "did";
     public static final String INDEX_COLUMN_NAME = "index";
 
@@ -76,12 +72,12 @@ public class SubDocTable extends TableImpl<SubDocTableRecord> {
 
     private final DatabaseInterface databaseInterface;
 
-    @Inject
     public SubDocTable(
             String tableName,
             IndexStorage.CollectionSchema schema,
             DatabaseMetaData metadata,
-            DatabaseInterface databaseInterface
+            DatabaseInterface databaseInterface,
+            Provider<SubDocType.Builder> subDocTypeBuilderProvider
     ) {
         this(
                 tableName,
@@ -91,18 +87,17 @@ public class SubDocTable extends TableImpl<SubDocTableRecord> {
                         schema.getName(),
                         tableName,
                         metadata,
-                        databaseInterface
+                        databaseInterface,
+                        subDocTypeBuilderProvider
                 ),
                 databaseInterface
         );
     }
 
-    @Inject
     public SubDocTable(IndexStorage.CollectionSchema schema, SubDocType type, int typeId, DatabaseInterface databaseInterface) {
         this(getSubDocTableName(typeId), schema, null, type, databaseInterface);
     }
 
-    @Inject
     private SubDocTable(
             String alias, Schema schema, Table<SubDocTableRecord> aliased, @Nonnull SubDocType type,
             DatabaseInterface databaseInterface
@@ -110,7 +105,6 @@ public class SubDocTable extends TableImpl<SubDocTableRecord> {
         this(alias, schema, aliased, null, type, databaseInterface);
     }
 
-    @Inject
     private SubDocTable(
             String alias, Schema schema, Table<SubDocTableRecord> aliased, Field<?>[] parameters,
             @Nonnull SubDocType type, DatabaseInterface databaseInterface
@@ -122,8 +116,7 @@ public class SubDocTable extends TableImpl<SubDocTableRecord> {
         for (SubDocAttribute attibute : type.getAttributes()) {
             String fieldName = new SubDocHelper(databaseInterface).toColumnName(attibute.getKey());
 
-            SubdocValueConverter converter
-                    = ValueToJooqConverterProvider.getConverter(attibute.getType());
+            SubdocValueConverter converter = ValueToJooqConverterProvider.getConverter(attibute.getType());
             createField(
                     fieldName,
                     converter.getDataType(),
@@ -136,41 +129,52 @@ public class SubDocTable extends TableImpl<SubDocTableRecord> {
     }
 
     @SuppressFBWarnings("SIC_INNER_SHOULD_BE_STATIC_ANON")
-    public Iterable<Field<? extends Value<? extends Serializable>>> getSubDocFields() {
-        final Iterator<Field<? extends Value<? extends Serializable>>> iterator
-                = new AbstractIterator<Field<? extends Value<? extends Serializable>>>() {
+    public Iterable<Field<? extends ScalarValue<? extends Serializable>>> getSubDocFields() {
+        final Iterator<Field<? extends ScalarValue<? extends Serializable>>> iterator
+                = new AbstractIterator<Field<? extends ScalarValue<? extends Serializable>>>() {
 
                     Iterator<String> attIt
                     = erasuredType.getAttributeKeys().iterator();
 
                     @Override
-                    protected Field<? extends Value<? extends Serializable>> computeNext() {
+                    protected Field<? extends ScalarValue<? extends Serializable>> computeNext() {
                         if (!attIt.hasNext()) {
                             endOfData();
                             return null;
                         }
-                        return (Field<? extends Value<? extends Serializable>>) field(attIt.next());
+                        return (Field<? extends ScalarValue<? extends Serializable>>) field(attIt.next());
                     }
                 };
-        return new Iterable<Field<? extends Value<? extends Serializable>>>() {
+        return new Iterable<Field<? extends ScalarValue<? extends Serializable>>>() {
 
             @Override
-            public Iterator<Field<? extends Value<? extends Serializable>>> iterator() {
+            public Iterator<Field<? extends ScalarValue<? extends Serializable>>> iterator() {
                 return iterator;
             }
         };
     }
 
     public static boolean isSubDocTable(String name) {
-        return getSubDocTypeId(name) != null;
+        try {
+            getSubDocTypeId(name);
+            return true;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
     }
 
-    private static Integer getSubDocTypeId(String name) {
-        Matcher matcher = TABLE_ID_PATTERN.matcher(name);
-        if (matcher.find()) {
-            return Integer.parseInt(matcher.group(1));
+    static int getSubDocTypeId(String name) throws NumberFormatException {
+        if (name.length() < 3 || !name.startsWith("t_")) {
+            throw new NumberFormatException(name + " is not a natural number");
         }
-        return null;
+        if (name.charAt(2) == '+') {
+            throw new NumberFormatException(name.substring(2) + " starts with +, which is not expected");
+        }
+        if (name.charAt(2) == '-') {
+            throw new NumberFormatException(name.substring(2) + " starts with -, which is not expected");
+        }
+        int i = Integer.parseInt(name.substring(2));
+        return i;
     }
 
     private static String getSubDocTableName(int typeId) {
@@ -181,10 +185,11 @@ public class SubDocTable extends TableImpl<SubDocTableRecord> {
             String schemaName,
             String tableName,
             DatabaseMetaData metadata,
-            DatabaseInterface databaseInterface
+            DatabaseInterface databaseInterface,
+            Provider<SubDocType.Builder> subDocTypeBuiderProvider
     ) {
         try {
-            SubDocType.Builder builder = new SubDocType.Builder();
+            SubDocType.Builder builder = subDocTypeBuiderProvider.get();
 
             ResultSet columns
                     = metadata.getColumns(null, schemaName, tableName, null);
@@ -197,14 +202,14 @@ public class SubDocTable extends TableImpl<SubDocTableRecord> {
                 int intColumnType = columns.getInt("DATA_TYPE");
                 String stringColumnType = columns.getString("TYPE_NAME");
 
-                BasicType basicType = databaseInterface.getBasicTypeToSqlType().toBasicType(
+                ScalarType scalarType = databaseInterface.getScalarTypeToSqlType().toScalarType(
                         columnName,
                         intColumnType,
                         stringColumnType
                 );
                 String attName = SubDocHelper.toAttributeName(columnName);
 
-                builder.add(new SubDocAttribute(attName, basicType));
+                builder.add(new SubDocAttribute(attName, scalarType));
             }
 
             return builder.build();
@@ -232,10 +237,8 @@ public class SubDocTable extends TableImpl<SubDocTableRecord> {
         return genericTable;
     }
 
-    public int getTypeId() {
-        Integer id = SubDocTable.getSubDocTypeId(getName());
-        assert id != null;
-        return id;
+    public int getTypeId() throws NumberFormatException {
+        return SubDocTable.getSubDocTypeId(getName());
     }
 
     public SubDocType getSubDocType() {

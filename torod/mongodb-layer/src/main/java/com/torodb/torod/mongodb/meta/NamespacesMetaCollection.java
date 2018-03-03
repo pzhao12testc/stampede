@@ -2,10 +2,10 @@
 package com.torodb.torod.mongodb.meta;
 
 import com.google.common.collect.Lists;
-import com.torodb.kvdocument.values.ObjectValue;
 import com.torodb.torod.core.annotations.DatabaseName;
 import com.torodb.torod.core.connection.ToroConnection;
 import com.torodb.torod.core.connection.ToroTransaction;
+import com.torodb.torod.core.connection.TransactionMetainfo;
 import com.torodb.torod.core.dbWrapper.exceptions.ImplementationDbException;
 import com.torodb.torod.core.pojos.NamedToroIndex;
 import com.torodb.torod.core.subdocument.ToroDocument;
@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.List;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import com.torodb.kvdocument.values.KVDocument;
 
 /**
  *
@@ -32,17 +33,16 @@ public class NamespacesMetaCollection extends MetaCollection {
         Collection<String> allCollections = toroConnection.getCollections();
 
         List<ToroDocument> candidates = Lists.newArrayList();
-        ToroTransaction transaction = null;
         String databaseName = getDatabaseName();
-        try {
-            transaction = toroConnection.createTransaction();
+
+        try (ToroTransaction transaction
+                = toroConnection.createTransaction(TransactionMetainfo.READ_ONLY)) {
 
             for (String collection : allCollections) {
                 String collectionNamespace = databaseName + '.' + collection;
 
-                candidates.add(
-                        new KVToroDocument(
-                                new ObjectValue.Builder()
+                candidates.add(new KVToroDocument(
+                                new KVDocument.Builder()
                                 .putValue("name", collectionNamespace)
                                 .build()
                         )
@@ -51,9 +51,8 @@ public class NamespacesMetaCollection extends MetaCollection {
                 Collection<? extends NamedToroIndex> indexes
                         = transaction.getIndexes(collection);
                 for (NamedToroIndex index : indexes) {
-                    candidates.add(
-                            new KVToroDocument(
-                                    new ObjectValue.Builder()
+                    candidates.add(new KVToroDocument(
+                                    new KVDocument.Builder()
                                     .putValue("name", collectionNamespace + ".$"
                                             + index.getName())
                                     .build()
@@ -61,9 +60,8 @@ public class NamespacesMetaCollection extends MetaCollection {
                     );
                 }
             }
-            candidates.add(
-                    new KVToroDocument(
-                            new ObjectValue.Builder()
+            candidates.add(new KVToroDocument(
+                            new KVDocument.Builder()
                             .putValue("name", databaseName + ".system.indexes")
                             .build()
                     )
@@ -73,10 +71,6 @@ public class NamespacesMetaCollection extends MetaCollection {
         }
         catch (ImplementationDbException ex) {
             throw new RuntimeException(ex.getMessage(), ex);
-        } finally {
-            if (transaction != null) {
-                transaction.close();
-            }
         }
     }
 
@@ -86,9 +80,8 @@ public class NamespacesMetaCollection extends MetaCollection {
 
         //count will be our result
         long count = allCollections.size(); //now it counts all standard collections
-        ToroTransaction transaction = null;
-        try {
-            transaction = toroConnection.createTransaction();
+        try (ToroTransaction transaction
+                = toroConnection.createTransaction(TransactionMetainfo.READ_ONLY)) {
 
             for (String collection : allCollections) {
                 count += transaction.getIndexes(collection).size();
@@ -98,10 +91,6 @@ public class NamespacesMetaCollection extends MetaCollection {
         }
         catch (ImplementationDbException ex) {
             throw new RuntimeException(ex.getMessage(), ex);
-        } finally {
-            if (transaction != null) {
-                transaction.close();
-            }
         }
         
         return count;

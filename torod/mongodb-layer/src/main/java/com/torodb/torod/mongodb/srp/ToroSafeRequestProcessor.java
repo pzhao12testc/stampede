@@ -1,17 +1,25 @@
 
 package com.torodb.torod.mongodb.srp;
 
+import com.eightkdata.mongowp.server.api.SafeRequestProcessor;
+import com.eightkdata.mongowp.server.api.CommandsLibrary;
+import com.eightkdata.mongowp.server.api.Connection;
+import com.eightkdata.mongowp.server.api.CommandsExecutor;
+import com.eightkdata.mongowp.server.api.CommandReply;
+import com.eightkdata.mongowp.server.api.Command;
+import com.eightkdata.mongowp.server.api.CommandRequest;
+import com.eightkdata.mongowp.server.api.Request;
+import com.eightkdata.mongowp.ErrorCode;
+import com.eightkdata.mongowp.bson.BsonDocument;
+import com.eightkdata.mongowp.exceptions.CommandNotSupportedException;
+import com.eightkdata.mongowp.exceptions.MongoException;
 import com.eightkdata.mongowp.messages.request.*;
 import com.eightkdata.mongowp.messages.response.ReplyMessage;
-import com.eightkdata.mongowp.mongoserver.api.safe.*;
-import com.eightkdata.mongowp.mongoserver.api.safe.impl.UpdateOpResult;
-import com.eightkdata.mongowp.mongoserver.api.safe.pojos.QueryRequest;
-import com.eightkdata.mongowp.mongoserver.callback.WriteOpResult;
-import com.eightkdata.mongowp.mongoserver.protocol.MongoWP;
-import com.eightkdata.mongowp.mongoserver.protocol.MongoWP.ErrorCode;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.CommandNotSupportedException;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.MongoException;
-import com.google.common.collect.Lists;
+import com.eightkdata.mongowp.messages.utils.IterableDocumentProvider;
+import com.eightkdata.mongowp.server.api.impl.UpdateOpResult;
+import com.eightkdata.mongowp.server.api.pojos.QueryRequest;
+import com.eightkdata.mongowp.server.callback.WriteOpResult;
+import com.google.common.collect.FluentIterable;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.torodb.torod.core.Torod;
@@ -21,6 +29,7 @@ import com.torodb.torod.core.cursors.CursorId;
 import com.torodb.torod.core.cursors.UserCursor;
 import com.torodb.torod.core.exceptions.ClosedToroCursorException;
 import com.torodb.torod.core.exceptions.CursorNotFoundException;
+import com.torodb.torod.mongodb.MongoLayerConstants;
 import com.torodb.torod.mongodb.OptimeClock;
 import com.torodb.torod.mongodb.RequestContext;
 import com.torodb.torod.mongodb.crp.CollectionRequestProcessor;
@@ -29,11 +38,9 @@ import com.torodb.torod.mongodb.crp.CollectionRequestProcessorProvider;
 import com.torodb.torod.mongodb.repl.ReplCoordinator;
 import com.torodb.torod.mongodb.translator.ToroToBsonTranslatorFunction;
 import io.netty.util.AttributeMap;
-import java.util.List;
 import javax.inject.Inject;
 import javax.inject.Provider;
 import javax.inject.Singleton;
-import org.bson.BsonDocument;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -113,11 +120,10 @@ public class ToroSafeRequestProcessor implements SafeRequestProcessor {
 
         try {
             UserCursor cursor = toroConnection.getCursor(cursorId);
-            List<BsonDocument> results = Lists.transform(
-                    cursor.read(MongoWP.MONGO_CURSOR_LIMIT),
-                    ToroToBsonTranslatorFunction.INSTANCE
-            );
-            boolean cursorEmptied = results.size() < MongoWP.MONGO_CURSOR_LIMIT;
+            FluentIterable<? extends BsonDocument> results = cursor
+                    .read(MongoLayerConstants.MONGO_CURSOR_LIMIT)
+                    .transform(ToroToBsonTranslatorFunction.INSTANCE);
+            boolean cursorEmptied = results.size() < MongoLayerConstants.MONGO_CURSOR_LIMIT;
 
             Integer position = cursor.getPosition();
             if (cursorEmptied) {
@@ -125,15 +131,18 @@ public class ToroSafeRequestProcessor implements SafeRequestProcessor {
             }
 
             return new ReplyMessage(
+                    EmptyBsonContext.getInstance(),
                     req.getRequestId(),
+                    false,
+                    false,
+                    false,
+                    false,
                     cursorEmptied ? 0 : cursorId.getNumericId(),
                     position,
-                    results
+                    IterableDocumentProvider.of(results)
             );
-        } catch (CursorNotFoundException ex) {
-            throw new com.eightkdata.mongowp.mongoserver.protocol.exceptions.CursorNotFoundException(cursorId.getNumericId());
-        } catch (ClosedToroCursorException ex) {
-            throw new com.eightkdata.mongowp.mongoserver.protocol.exceptions.CursorNotFoundException(cursorId.getNumericId());
+        } catch (CursorNotFoundException | ClosedToroCursorException ex) {
+            throw new com.eightkdata.mongowp.exceptions.CursorNotFoundException(cursorId.getNumericId());
         }
     }
 
@@ -179,7 +188,12 @@ public class ToroSafeRequestProcessor implements SafeRequestProcessor {
         );
         QueryResponse response = colRequestProcessor.query(request, message);
         return new ReplyMessage(
+                EmptyBsonContext.getInstance(),
                 request.getRequestId(),
+                false,
+                false,
+                false,
+                false,
                 response.getCursorId(),
                 message.getNumberToSkip(),
                 response.getDocuments()

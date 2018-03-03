@@ -20,7 +20,9 @@
 
 package com.torodb.torod.core.executor;
 
+import com.google.common.collect.FluentIterable;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.torodb.torod.core.connection.TransactionMetainfo;
 import com.torodb.torod.core.cursors.CursorId;
 import com.torodb.torod.core.dbWrapper.exceptions.ImplementationDbException;
 import com.torodb.torod.core.language.projection.Projection;
@@ -57,7 +59,7 @@ public interface SessionExecutor extends Closeable {
      */
     void pauseUntil(long tick);
 
-    SessionTransaction createTransaction() throws ImplementationDbException;
+    SessionTransaction createTransaction(TransactionMetainfo metainfo) throws ImplementationDbException;
     
     /**
      * 
@@ -76,7 +78,7 @@ public interface SessionExecutor extends Closeable {
             @Nonnegative int maxResults
     );
     
-    ListenableFuture<List<CollectionMetainfo>> getCollectionsMetainfo();
+    ListenableFuture<FluentIterable<CollectionMetainfo>> getCollectionsMetainfo();
 
     /**
      *

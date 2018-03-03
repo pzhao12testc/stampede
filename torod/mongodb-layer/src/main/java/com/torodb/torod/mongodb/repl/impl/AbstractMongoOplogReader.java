@@ -1,23 +1,28 @@
 
 package com.torodb.torod.mongodb.repl.impl;
 
+import com.eightkdata.mongowp.OpTime;
+import com.eightkdata.mongowp.bson.BsonArray;
+import com.eightkdata.mongowp.bson.BsonDocument;
+import com.eightkdata.mongowp.bson.BsonInt32;
 import com.eightkdata.mongowp.client.core.MongoConnection;
-import com.eightkdata.mongowp.messages.request.QueryMessage;
+import com.eightkdata.mongowp.exceptions.*;
+import com.eightkdata.mongowp.messages.request.QueryMessage.QueryOption;
+import com.eightkdata.mongowp.messages.request.QueryMessage.QueryOptions;
+import com.eightkdata.mongowp.server.api.oplog.OplogOperation;
+import com.eightkdata.mongowp.server.api.pojos.MongoCursor;
+import com.eightkdata.mongowp.server.api.pojos.MongoCursor.Batch;
+import com.eightkdata.mongowp.server.api.pojos.MongoCursor.DeadCursorException;
+import com.eightkdata.mongowp.server.api.pojos.TransformationMongoCursor;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.pojos.OplogOperationParser;
-import com.eightkdata.mongowp.mongoserver.api.safe.oplog.OplogOperation;
-import com.eightkdata.mongowp.mongoserver.api.safe.pojos.MongoCursor;
-import com.eightkdata.mongowp.mongoserver.api.safe.pojos.MongoCursor.Batch;
-import com.eightkdata.mongowp.mongoserver.api.safe.pojos.MongoCursor.DeadCursorException;
-import com.eightkdata.mongowp.mongoserver.api.safe.pojos.TransformationMongoCursor;
-import com.eightkdata.mongowp.mongoserver.pojos.OpTime;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.*;
+import com.eightkdata.mongowp.utils.BsonArrayBuilder;
+import com.eightkdata.mongowp.utils.BsonDocumentBuilder;
 import com.google.common.base.Preconditions;
 import com.torodb.torod.mongodb.repl.OplogReader;
 import java.util.EnumSet;
 import java.util.Iterator;
-import org.bson.BsonArray;
-import org.bson.BsonDocument;
-import org.bson.BsonInt32;
+
+import static com.eightkdata.mongowp.bson.utils.DefaultBsonValues.*;
 
 /**
  *
@@ -26,27 +31,26 @@ public abstract class AbstractMongoOplogReader implements OplogReader {
     private static final String DATABASE = "local";
     private static final String COLLECTION = "oplog.rs";
 
-    private static final BsonDocument NATURAL_ORDER_SORT = new BsonDocument()
-            .append("$natural", new BsonInt32(1));
-    private static final BsonDocument INVERSE_ORDER_SORT = new BsonDocument()
-            .append("$natural", new BsonInt32(-1));
+    private static final BsonDocument NATURAL_ORDER_SORT = newDocument("$natural", newInt(1));
+    private static final BsonDocument INVERSE_ORDER_SORT = newDocument("$natural", newInt(-1));
 
     protected abstract MongoConnection consumeConnection();
     protected abstract void releaseConnection(MongoConnection connection);
     
     @Override
     public MongoCursor<OplogOperation> queryGTE(OpTime lastFetchedOpTime) throws MongoException {
-        BsonDocument query = new BsonDocument(
+        BsonDocument query = newDocument(
                 "ts",
-                new BsonDocument("$gte", lastFetchedOpTime.asBsonTimestamp())
+                newDocument("$gte", lastFetchedOpTime.asBsonTimestamp())
         );
-        query = new BsonDocument()
-                .append("$query", query)
-                .append("$orderby", NATURAL_ORDER_SORT);
+        query = new BsonDocumentBuilder()
+                .appendUnsafe("$query", query)
+                .appendUnsafe("$orderby", NATURAL_ORDER_SORT)
+                .build();
 
-        EnumSet<QueryMessage.Flag> flags = EnumSet.of(
-                QueryMessage.Flag.AWAIT_DATA, 
-                QueryMessage.Flag.TAILABLE_CURSOR
+        EnumSet<QueryOption> flags = EnumSet.of(
+                QueryOption.AWAIT_DATA,
+                QueryOption.TAILABLE_CURSOR
         );
 
         return query(query, flags);
@@ -71,22 +75,25 @@ public abstract class AbstractMongoOplogReader implements OplogReader {
     public MongoCursor<OplogOperation> between(
             OpTime from, boolean includeFrom,
             OpTime to, boolean includeTo) throws MongoException {
-        BsonArray conditions = new BsonArray();
-        conditions.add(new BsonDocument()
-                .append("ts", 
-                        new BsonDocument(includeFrom ? "$gte" : "$gt", from.asBsonTimestamp())
+        BsonArrayBuilder conditions = new BsonArrayBuilder();
+        conditions.add(
+                newDocument(
+                        "ts",
+                        newDocument(includeFrom ? "$gte" : "$gt", from.asBsonTimestamp())
                 )
         );
-        conditions.add(new BsonDocument()
-                .append("ts", 
-                        new BsonDocument(includeTo ? "$lte" : "$lt", to.asBsonTimestamp())
+        conditions.add(
+                newDocument(
+                        "ts",
+                        newDocument(includeTo ? "$lte" : "$lt", to.asBsonTimestamp())
                 )
         );
-        BsonDocument query = new BsonDocument()
-                .append("$query", new BsonDocument("$and", conditions))
-                .append("$orderby", NATURAL_ORDER_SORT);
+        BsonDocument query = new BsonDocumentBuilder()
+                .appendUnsafe("$query", newDocument("$and", conditions.build()))
+                .appendUnsafe("$orderby", NATURAL_ORDER_SORT)
+                .build();
 
-        EnumSet<QueryMessage.Flag> flags = EnumSet.noneOf(QueryMessage.Flag.class);
+        EnumSet<QueryOption> flags = EnumSet.noneOf(QueryOption.class);
 
         return query(query, flags);
     }
@@ -96,21 +103,21 @@ public abstract class AbstractMongoOplogReader implements OplogReader {
         return false;
     }
 
-    public MongoCursor<OplogOperation> query(BsonDocument query, EnumSet<QueryMessage.Flag> flags) throws MongoException {
+    public MongoCursor<OplogOperation> query(BsonDocument query, EnumSet<QueryOption> flags) throws MongoException {
         Preconditions.checkState(!isClosed(), "You have to connect this client before");
 
         MongoConnection connection = consumeConnection();
         MongoCursor<BsonDocument> cursor = connection.query(
                 DATABASE,
                 COLLECTION,
-                flags,
                 query,
                 0,
                 0,
+                new QueryOptions(flags),
                 null
         );
 
-        return new MyCursor<OplogOperation>(
+        return new MyCursor<>(
                 connection,
                 TransformationMongoCursor.create(
                         cursor,
@@ -125,11 +132,12 @@ public abstract class AbstractMongoOplogReader implements OplogReader {
             MongoException {
         Preconditions.checkState(!isClosed(), "You have to connect this client before");
 
-        BsonDocument query = new BsonDocument()
-                .append("$query", new BsonDocument())
-                .append("$orderby", first ? NATURAL_ORDER_SORT : INVERSE_ORDER_SORT);
+        BsonDocument query = new BsonDocumentBuilder()
+                .appendUnsafe("$query", EMPTY_DOC)
+                .appendUnsafe("$orderby", first ? NATURAL_ORDER_SORT : INVERSE_ORDER_SORT)
+                .build();
 
-        EnumSet<QueryMessage.Flag> flags = EnumSet.of(QueryMessage.Flag.SLAVE_OK);
+        EnumSet<QueryOption> flags = EnumSet.of(QueryOption.SLAVE_OK);
 
         BsonDocument doc;
         MongoConnection connection = consumeConnection();
@@ -137,10 +145,10 @@ public abstract class AbstractMongoOplogReader implements OplogReader {
             MongoCursor<BsonDocument> cursor = connection.query(
                     DATABASE,
                     COLLECTION,
-                    flags,
                     query,
                     0,
                     1,
+                    new QueryOptions(flags),
                     null
             );
             try {
@@ -159,11 +167,9 @@ public abstract class AbstractMongoOplogReader implements OplogReader {
 
             try {
                 return OplogOperationParser.fromBson(doc);
-            } catch (BadValueException ex) {
-                throw new OplogOperationUnsupported(doc, ex);
-            } catch (TypesMismatchException ex) {
-                throw new OplogOperationUnsupported(doc, ex);
-            } catch (NoSuchKeyException ex) {
+            } catch (BadValueException |
+                    TypesMismatchException |
+                    NoSuchKeyException ex) {
                 throw new OplogOperationUnsupported(doc, ex);
             }
         } finally {
@@ -175,7 +181,7 @@ public abstract class AbstractMongoOplogReader implements OplogReader {
         private final MongoConnection connection;
         private final MongoCursor<T> delegate;
 
-        public MyCursor(MongoConnection connection, MongoCursor<T> delegate) {
+        private MyCursor(MongoConnection connection, MongoCursor<T> delegate) {
             this.connection = connection;
             this.delegate = delegate;
         }

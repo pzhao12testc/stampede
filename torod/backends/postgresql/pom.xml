@@ -9,12 +9,12 @@
     <parent>
         <groupId>com.torodb.torod.backends</groupId>
         <artifactId>backends</artifactId>
-        <version>0.40-alpha1</version>
+        <version>0.40-alpha2</version>
     </parent>
 
     <artifactId>postgresql</artifactId>
     
-    <name>Torod: PostgreSQL backend</name>
+    <name>Torod: Backends - PostgreSQL</name>
     <description>
         PostgreSQL implementation of a ToroDB backend. This was the original backend implemented in ToroDB, and is
         also considered as the default ToroDB backend and a reference implementation.
@@ -36,14 +36,15 @@
             <artifactId>postgresql</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.torodb</groupId>
+            <artifactId>common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>javax.inject</groupId>
             <artifactId>javax.inject</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.google.inject</groupId>
-            <artifactId>guice</artifactId>
         </dependency>
         <dependency>
             <groupId>org.postgresql</groupId>
@@ -69,6 +70,11 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
     

@@ -21,8 +21,9 @@
 package com.torodb.torod.core.connection;
 
 import com.google.common.annotations.Beta;
+import com.google.common.collect.FluentIterable;
 import com.google.common.util.concurrent.ListenableFuture;
-import com.torodb.kvdocument.values.DocValue;
+import com.torodb.kvdocument.values.KVValue;
 import com.torodb.torod.core.ValueRow;
 import com.torodb.torod.core.WriteFailMode;
 import com.torodb.torod.core.exceptions.ExistentIndexException;
@@ -34,7 +35,6 @@ import com.torodb.torod.core.pojos.Database;
 import com.torodb.torod.core.pojos.IndexedAttributes;
 import com.torodb.torod.core.pojos.NamedToroIndex;
 import com.torodb.torod.core.subdocument.ToroDocument;
-import java.io.Closeable;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -44,7 +44,7 @@ import javax.annotation.Nonnull;
 /**
  *
  */
-public interface ToroTransaction extends Closeable {
+public interface ToroTransaction extends AutoCloseable {
 
     public ListenableFuture<?> rollback();
 
@@ -63,7 +63,7 @@ public interface ToroTransaction extends Closeable {
      */
     public ListenableFuture<InsertResponse> insertDocuments(
             @Nonnull String collection,
-            @Nonnull Iterable<ToroDocument> documents,
+            @Nonnull FluentIterable<ToroDocument> documents,
             WriteFailMode mode
     );
     
@@ -138,5 +138,5 @@ public interface ToroTransaction extends Closeable {
     public ListenableFuture<Void> dropPathViews(String collection) throws UnsupportedOperationException;
 
     @Beta
-    public ListenableFuture<Iterator<ValueRow<DocValue>>> sqlSelect(String sqlQuery) throws UnsupportedOperationException, UserToroException;
+    public ListenableFuture<Iterator<ValueRow<KVValue<?>>>> sqlSelect(String sqlQuery) throws UnsupportedOperationException, UserToroException;
 }

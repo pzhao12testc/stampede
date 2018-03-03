@@ -21,21 +21,24 @@
 
 package com.torodb.torod.db.backends.postgresql;
 
+import com.torodb.torod.core.subdocument.SimpleSubDocTypeBuilderProvider;
+import com.torodb.torod.core.subdocument.SubDocType;
+import com.torodb.torod.core.subdocument.SubDocType.Builder;
 import com.torodb.torod.db.backends.ArraySerializer;
 import com.torodb.torod.db.backends.DatabaseInterface;
-import com.torodb.torod.db.backends.converters.BasicTypeToSqlType;
+import com.torodb.torod.db.backends.converters.ScalarTypeToSqlType;
 import com.torodb.torod.db.backends.exceptions.InvalidDatabaseException;
 import com.torodb.torod.db.backends.meta.TorodbMeta;
 import com.torodb.torod.db.backends.tables.CollectionsTable;
-import org.jooq.DSLContext;
-
-import javax.annotation.Nonnull;
-import javax.inject.Inject;
-import javax.inject.Singleton;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import javax.annotation.Nonnull;
+import javax.inject.Inject;
+import javax.inject.Provider;
+import javax.inject.Singleton;
+import org.jooq.DSLContext;
 
 /**
  *
@@ -45,7 +48,8 @@ public class PostgresqlDatabaseInterface implements DatabaseInterface {
 
     private static final long serialVersionUID = 484638503;
 
-    private final BasicTypeToSqlType basicTypeToSqlType;
+    private final ScalarTypeToSqlType scalarTypeToSqlType;
+    private transient @Nonnull Provider<SubDocType.Builder> subDocTypeBuilderProvider;
 
     private static class ArraySerializatorHolder {
         private static final ArraySerializer INSTANCE = new JsonbArraySerializer();
@@ -58,8 +62,16 @@ public class PostgresqlDatabaseInterface implements DatabaseInterface {
     }
 
     @Inject
-    public PostgresqlDatabaseInterface(BasicTypeToSqlType basicTypeToSqlType) {
-        this.basicTypeToSqlType = basicTypeToSqlType;
+    public PostgresqlDatabaseInterface(ScalarTypeToSqlType scalarTypeToSqlType, Provider<Builder> subDocTypeBuilderProvider) {
+        this.scalarTypeToSqlType = scalarTypeToSqlType;
+        this.subDocTypeBuilderProvider = subDocTypeBuilderProvider;
+    }
+
+    private void readObject(java.io.ObjectInputStream stream)
+            throws IOException, ClassNotFoundException {
+        //TODO: Try to remove make DatabaseInterface not serializable
+        stream.defaultReadObject();
+        this.subDocTypeBuilderProvider = new SimpleSubDocTypeBuilderProvider();
     }
 
     @Override
@@ -96,8 +108,8 @@ public class PostgresqlDatabaseInterface implements DatabaseInterface {
     }
 
     @Override
-    public @Nonnull BasicTypeToSqlType getBasicTypeToSqlType() {
-        return basicTypeToSqlType;
+    public ScalarTypeToSqlType getScalarTypeToSqlType() {
+        return scalarTypeToSqlType;
     }
 
     private static @Nonnull StringBuilder fullTableName(@Nonnull String schemaName, @Nonnull String tableName) {
@@ -226,7 +238,7 @@ public class PostgresqlDatabaseInterface implements DatabaseInterface {
     public @Nonnull TorodbMeta initializeTorodbMeta(
             String databaseName, DSLContext dsl, DatabaseInterface databaseInterface
     ) throws SQLException, IOException, InvalidDatabaseException {
-        return new PostgreSQLTorodbMeta(databaseName, dsl, databaseInterface);
+        return new PostgreSQLTorodbMeta(databaseName, dsl, databaseInterface, subDocTypeBuilderProvider);
     }
 
 }

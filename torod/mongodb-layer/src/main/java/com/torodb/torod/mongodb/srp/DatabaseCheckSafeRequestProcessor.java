@@ -1,20 +1,25 @@
 
 package com.torodb.torod.mongodb.srp;
 
+import com.eightkdata.mongowp.server.api.CommandReply;
+import com.eightkdata.mongowp.server.api.Command;
+import com.eightkdata.mongowp.server.api.CommandRequest;
+import com.eightkdata.mongowp.server.api.Request;
+import com.eightkdata.mongowp.exceptions.CommandNotSupportedException;
+import com.eightkdata.mongowp.exceptions.DatabaseNotFoundException;
+import com.eightkdata.mongowp.exceptions.MongoException;
 import com.eightkdata.mongowp.messages.request.DeleteMessage;
 import com.eightkdata.mongowp.messages.request.InsertMessage;
 import com.eightkdata.mongowp.messages.request.UpdateMessage;
 import com.eightkdata.mongowp.messages.response.ReplyMessage;
-import com.eightkdata.mongowp.mongoserver.api.safe.*;
-import com.eightkdata.mongowp.mongoserver.api.safe.impl.UpdateOpResult;
-import com.eightkdata.mongowp.mongoserver.api.safe.pojos.QueryRequest;
-import com.eightkdata.mongowp.mongoserver.callback.WriteOpResult;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.CommandNotSupportedException;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.DatabaseNotFoundException;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.MongoException;
+import com.eightkdata.mongowp.server.api.impl.UpdateOpResult;
+import com.eightkdata.mongowp.server.api.pojos.QueryRequest;
+import com.eightkdata.mongowp.server.callback.WriteOpResult;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.torodb.torod.core.annotations.DatabaseName;
 import com.torodb.torod.mongodb.annotations.External;
+import java.util.Locale;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 
@@ -34,6 +39,10 @@ import javax.inject.Singleton;
 public class DatabaseCheckSafeRequestProcessor extends DecoratorSafeRequestProcessor {
     private static final String ADMIN_DB = "admin";
     private static final String LOCAL_DB = "local";
+    /**
+     * The lower case name of commands that can bypass the database check.
+     */
+    private static final ImmutableSet<String> WHITE_COMMAND_LIST = ImmutableSet.of("ismaster");
 
     private final String supportedDatabase;
 
@@ -99,12 +108,18 @@ public class DatabaseCheckSafeRequestProcessor extends DecoratorSafeRequestProce
         return super.query(request, queryMessage);
     }
 
+    private <Arg, Result>  boolean onWhiteList(Command<? super Arg, ? super Result> command) {
+        return WHITE_COMMAND_LIST.contains(command.getCommandName().toLowerCase(Locale.ENGLISH));
+    }
+
     @Override
     public <Arg, Result> CommandReply<Result> execute(Command<? super Arg, ? super Result> command, CommandRequest<Arg> request)
             throws MongoException, CommandNotSupportedException {
-        String database = request.getDatabase();
-        assert database != null;
-        checkDatabase(database);
+        if (!onWhiteList(command)) {
+            String database = request.getDatabase();
+            assert database != null;
+            checkDatabase(database);
+        }
         return super.execute(command, request);
     }
 }

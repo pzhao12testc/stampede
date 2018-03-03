@@ -1,13 +1,11 @@
 
 package com.torodb.torod.mongodb.commands;
 
-import com.eightkdata.mongowp.mongoserver.api.safe.Command;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandImplementation;
-import com.eightkdata.mongowp.mongoserver.api.safe.impl.CollectionCommandArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.MongoDb30Commands.MongoDb30CommandsImplementationBuilder;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.AdminCommands.AdminCommandsImplementationsBuilder;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.CreateCollectionCommand.CreateCollectionArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.CreateIndexesCommand.CreateIndexesArgument;
+import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.CreateIndexesCommand.CreateIndexesResult;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.ListCollectionsCommand.ListCollectionsArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.ListCollectionsCommand.ListCollectionsResult;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.ListIndexesCommand.ListIndexesArgument;
@@ -19,6 +17,8 @@ import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnos
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.CollStatsCommand.CollStatsReply;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.DiagnosticCommands.DiagnosticCommandsImplementationsBuilder;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.ListDatabasesCommand.ListDatabasesReply;
+import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.ServerStatusCommand.ServerStatusArgument;
+import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.ServerStatusCommand.ServerStatusReply;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.general.DeleteCommand.DeleteArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.general.GeneralCommands.GeneralCommandsImplementationsBuilder;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.general.GetLastErrorCommand.GetLastErrorArgument;
@@ -48,22 +48,22 @@ import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.repl.Re
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.repl.ReplSetStepDownCommand.ReplSetStepDownArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.repl.ReplSetSyncFromCommand.ReplSetSyncFromReply;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.pojos.ReplicaSetConfig;
-import com.eightkdata.mongowp.mongoserver.api.safe.tools.Empty;
+import com.eightkdata.mongowp.server.api.Command;
+import com.eightkdata.mongowp.server.api.CommandImplementation;
+import com.eightkdata.mongowp.server.api.impl.CollectionCommandArgument;
+import com.eightkdata.mongowp.server.api.tools.Empty;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.net.HostAndPort;
-import com.torodb.torod.core.annotations.DatabaseName;
-import com.torodb.torod.mongodb.commands.impl.admin.CreateCollectionImplementation;
-import com.torodb.torod.mongodb.commands.impl.admin.DropCollectionImplementation;
-import com.torodb.torod.mongodb.commands.impl.admin.DropDatabaseImplementation;
-import com.torodb.torod.mongodb.commands.impl.admin.ListCollectionsImplementation;
+import com.torodb.torod.mongodb.commands.impl.admin.*;
+import com.torodb.torod.mongodb.commands.impl.aggregation.CountImplementation;
 import com.torodb.torod.mongodb.commands.impl.diagnostic.CollStatsImplementation;
 import com.torodb.torod.mongodb.commands.impl.diagnostic.ListDatabasesImplementation;
+import com.torodb.torod.mongodb.commands.impl.diagnostic.ServerStatusImplementation;
 import com.torodb.torod.mongodb.commands.impl.general.DeleteImplementation;
 import com.torodb.torod.mongodb.commands.impl.general.GetLastErrorImplementation;
 import com.torodb.torod.mongodb.commands.impl.general.InsertImplementation;
 import com.torodb.torod.mongodb.commands.impl.general.UpdateImplementation;
-import com.torodb.torod.mongodb.meta.MetaCollectionProvider;
 import com.torodb.torod.mongodb.translator.QueryCriteriaTranslator;
 import java.util.Map.Entry;
 import javax.inject.Inject;
@@ -77,18 +77,18 @@ import javax.inject.Inject;
  */
 public class ToroV30CommandTool {
 
-    private final ImmutableMap<Command, CommandImplementation> map;
+    private final ImmutableMap<Command<?,?>, CommandImplementation> map;
 
     @Inject
     ToroV30CommandTool(MapFactory mapFactory) {
         this.map = mapFactory.get();
     }
 
-    public ImmutableMap<Command, CommandImplementation> getMap() {
+    public ImmutableMap<Command<?,?>, CommandImplementation> getMap() {
         return map;
     }
 
-    static class MapFactory implements Supplier<ImmutableMap<Command, CommandImplementation>> {
+    static class MapFactory implements Supplier<ImmutableMap<Command<?,?>, CommandImplementation>> {
 
         private final MyAdminCommandsImplementationBuilder adminBuilder;
         private final MyAggregationCommandsImplementationBuilder aggregationBuilder;
@@ -114,13 +114,13 @@ public class ToroV30CommandTool {
         }
 
         @Override
-        public ImmutableMap<Command, CommandImplementation> get() {
+        public ImmutableMap<Command<?,?>, CommandImplementation> get() {
             MongoDb30CommandsImplementationBuilder implBuilder = new MongoDb30CommandsImplementationBuilder(
                     adminBuilder, aggregationBuilder, diagnosticBuilder, generalBuilder, internalBuilder, replBuilder
             );
 
-            ImmutableMap.Builder<Command, CommandImplementation> builder = ImmutableMap.builder();
-            for (Entry<Command, CommandImplementation> entry : implBuilder) {
+            ImmutableMap.Builder<Command<?,?>, CommandImplementation> builder = ImmutableMap.builder();
+            for (Entry<Command<?,?>, CommandImplementation> entry : implBuilder) {
                 builder.put(entry.getKey(), entry.getValue());
             }
 
@@ -130,23 +130,28 @@ public class ToroV30CommandTool {
     }
 
     static class MyAdminCommandsImplementationBuilder extends AdminCommandsImplementationsBuilder {
-        private final QueryCriteriaTranslator queryCriteriaTranslator;
-        private final String supportedDatabase;
+        
+        private final ListCollectionsImplementation listCollections;
+        private final DropDatabaseImplementation dropDatabase;
+        private final CreateIndexesImplementation createIndexes;
+        private final ListIndexesImplementation listIndexes;
 
         @Inject
-        MyAdminCommandsImplementationBuilder(@DatabaseName String supportedDatabase, QueryCriteriaTranslator queryCriteriaTranslator) {
-            this.queryCriteriaTranslator = queryCriteriaTranslator;
-            this.supportedDatabase = supportedDatabase;
+        public MyAdminCommandsImplementationBuilder(ListCollectionsImplementation listCollections, DropDatabaseImplementation dropDatabase, CreateIndexesImplementation createIndexes, ListIndexesImplementation listIndexes) {
+            this.listCollections = listCollections;
+            this.dropDatabase = dropDatabase;
+            this.createIndexes = createIndexes;
+            this.listIndexes = listIndexes;
         }
 
         @Override
         public CommandImplementation<ListCollectionsArgument, ListCollectionsResult> getListCollectionsImplementation() {
-            return new ListCollectionsImplementation(queryCriteriaTranslator);
+            return listCollections;
         }
 
         @Override
         public CommandImplementation<Empty, Empty> getDropDatabaseImplementation() {
-            return new DropDatabaseImplementation(supportedDatabase);
+            return dropDatabase;
         }
 
         @Override
@@ -161,36 +166,45 @@ public class ToroV30CommandTool {
 
         @Override
         public CommandImplementation<ListIndexesArgument, ListIndexesResult> getListIndexesImplementation() {
-            return NotImplementedCommandImplementation.build();
+            return listIndexes;
         }
 
         @Override
-        public CommandImplementation<CreateIndexesArgument, Empty> getCreateIndexesImplementation() {
-            return NotImplementedCommandImplementation.build();
+        public CommandImplementation<CreateIndexesArgument, CreateIndexesResult> getCreateIndexesImplementation() {
+            return createIndexes;
         }
 
     }
 
     static class MyAggregationCommandsImplementationBuilder extends AggregationCommandsImplementationsBuilder {
 
+        private final CountImplementation countImplementation;
+
+        @Inject
+        public MyAggregationCommandsImplementationBuilder(CountImplementation countImplementation) {
+            this.countImplementation = countImplementation;
+        }
+
         @Override
         public CommandImplementation<CountArgument, Long> getCountImplementation() {
-            return NotImplementedCommandImplementation.build();
+            return countImplementation;
         }
 
     }
 
     static class MyDiagnosticCommandsImplementationBuilder extends DiagnosticCommandsImplementationsBuilder {
-        private final MetaCollectionProvider metaCollectionProvider;
+        private final ServerStatusImplementation serverStatusImplementation;
+        private final CollStatsImplementation collStatsImplementation;
 
         @Inject
-        public MyDiagnosticCommandsImplementationBuilder(MetaCollectionProvider metaCollectionProvider) {
-            this.metaCollectionProvider = metaCollectionProvider;
+        public MyDiagnosticCommandsImplementationBuilder(ServerStatusImplementation serverStatusImplementation, CollStatsImplementation collStatsImplementation) {
+            this.serverStatusImplementation = serverStatusImplementation;
+            this.collStatsImplementation = collStatsImplementation;
         }
 
         @Override
         public CommandImplementation<CollStatsArgument, CollStatsReply> getCollStatsImplementation() {
-            return new CollStatsImplementation(metaCollectionProvider);
+            return collStatsImplementation;
         }
 
         @Override
@@ -201,6 +215,11 @@ public class ToroV30CommandTool {
         @Override
         public CommandImplementation<Empty, BuildInfoResult> getBuildInfoImplementation() {
             return NotImplementedCommandImplementation.build();
+        }
+
+        @Override
+        public CommandImplementation<ServerStatusArgument, ServerStatusReply> getServerStatusImplementation() {
+            return serverStatusImplementation;
         }
 
     }

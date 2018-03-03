@@ -7,3 +7,8 @@ nb-configuration.xml
 .project
 .classpath
 .settings/
+/torodb/dump
+/torod/backends/common/nbproject/
+/torod/backends/postgresql/nbproject/
+hs_err*.log
+/torod/mongodb-layer/nbproject/

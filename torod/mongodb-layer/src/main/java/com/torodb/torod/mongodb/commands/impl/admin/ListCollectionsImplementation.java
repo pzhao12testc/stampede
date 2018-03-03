@@ -1,28 +1,32 @@
 
 package com.torodb.torod.mongodb.commands.impl.admin;
 
-import com.eightkdata.mongowp.mongoserver.api.safe.Command;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandRequest;
-import com.eightkdata.mongowp.mongoserver.api.safe.CommandResult;
-import com.eightkdata.mongowp.mongoserver.api.safe.impl.NonWriteCommandResult;
+import com.eightkdata.mongowp.bson.BsonDocument;
+import com.eightkdata.mongowp.bson.utils.DefaultBsonValues;
+import com.eightkdata.mongowp.exceptions.CommandFailed;
+import com.eightkdata.mongowp.exceptions.InternalErrorException;
+import com.eightkdata.mongowp.exceptions.MongoException;
+import com.eightkdata.mongowp.server.api.Command;
+import com.eightkdata.mongowp.server.api.CommandRequest;
+import com.eightkdata.mongowp.server.api.CommandResult;
+import com.eightkdata.mongowp.server.api.impl.NonWriteCommandResult;
+import com.eightkdata.mongowp.server.api.pojos.MongoCursor;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.ListCollectionsCommand.ListCollectionsArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.ListCollectionsCommand.ListCollectionsResult;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.ListCollectionsCommand.ListCollectionsResult.Entry;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.pojos.CollectionOptions;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.tools.CursorMarshaller.FirstBatchOnlyCursor;
-import com.eightkdata.mongowp.mongoserver.api.safe.pojos.MongoCursor;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.CommandFailed;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.MongoException;
 import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
 import com.google.common.base.Predicates;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
-import com.torodb.kvdocument.values.DocValue;
+import com.torodb.kvdocument.values.KVValue;
 import com.torodb.torod.core.connection.ToroConnection;
-import com.torodb.torod.core.cursors.UserCursor;
 import com.torodb.torod.core.exceptions.ClosedToroCursorException;
+import com.torodb.torod.core.exceptions.ToroException;
+import com.torodb.torod.core.exceptions.UserToroException;
 import com.torodb.torod.core.language.querycriteria.QueryCriteria;
 import com.torodb.torod.core.pojos.CollectionMetainfo;
 import com.torodb.torod.core.subdocument.ToroDocument;
@@ -36,7 +40,6 @@ import java.util.EnumSet;
 import java.util.List;
 import javax.inject.Inject;
 import javax.json.JsonObject;
-import org.bson.BsonDocument;
 
 /**
  *
@@ -78,17 +81,15 @@ public class ListCollectionsImplementation extends
                  * example, we can evaluate the query on the mongowp objects
                  */
                 QueryCriteria filter = queryCriteriaTranslator.translate(arg.getFilter());
-                Predicate<DocValue> docValuePredicate =
+                Predicate<KVValue<?>> docValuePredicate =
                         DocValueQueryCriteriaEvaluator.createPredicate(filter);
                 entryPredicate = new EntryPredicate(docValuePredicate);
             }
-            UserCursor<CollectionMetainfo> cursor
-                    = connection.openCollectionsMetainfoCursor();
-            
+
             ImmutableList<ListCollectionsResult.Entry> firstBatch = ImmutableList.copyOf(
                     Iterables.filter(
                             Iterables.transform(
-                                    cursor.readAll(),
+                                    connection.getCollectionsMetainfoCursor(),
                                     transformation
                             ),
                             entryPredicate
@@ -111,6 +112,10 @@ public class ListCollectionsImplementation extends
                     "The cursor that iterates over the collections has been "
                             + "suddenly closed "
             );
+        } catch (UserToroException ex) {
+            throw new CommandFailed(command.getCommandName(), ex.getLocalizedMessage(), ex);
+        } catch (ToroException ex) {
+            throw new InternalErrorException(ex);
         }
     }
 
@@ -177,7 +182,7 @@ public class ListCollectionsImplementation extends
         @Override
         public BsonDocument getStorageEngine() {
             if (metainfo.getJson() == null) {
-                return new BsonDocument();
+                return DefaultBsonValues.EMPTY_DOC;
             }
             
             Preconditions.checkState(metainfo.getJson() instanceof JsonObject,
@@ -196,9 +201,9 @@ public class ListCollectionsImplementation extends
 
     private static class EntryPredicate implements Predicate<ListCollectionsResult.Entry> {
 
-        private final Predicate<DocValue> docValuePredicate;
+        private final Predicate<KVValue<?>> docValuePredicate;
 
-        public EntryPredicate(Predicate<DocValue> docValuePredicate) {
+        public EntryPredicate(Predicate<KVValue<?>> docValuePredicate) {
             this.docValuePredicate = docValuePredicate;
         }
 

@@ -1,15 +1,19 @@
 
 package com.torodb.torod.mongodb.srp;
 
+import com.eightkdata.mongowp.ErrorCode;
+import com.eightkdata.mongowp.exceptions.CommandNotSupportedException;
+import com.eightkdata.mongowp.exceptions.MongoException;
 import com.eightkdata.mongowp.messages.request.DeleteMessage;
+import com.eightkdata.mongowp.messages.request.EmptyBsonContext;
 import com.eightkdata.mongowp.messages.request.InsertMessage;
 import com.eightkdata.mongowp.messages.request.UpdateMessage;
 import com.eightkdata.mongowp.messages.response.ReplyMessage;
-import com.eightkdata.mongowp.mongoserver.api.safe.*;
-import com.eightkdata.mongowp.mongoserver.api.safe.impl.*;
+import com.eightkdata.mongowp.messages.utils.IterableDocumentProvider;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.AdminCommands.AdminCommandsImplementationsBuilder;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.CreateCollectionCommand.CreateCollectionArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.CreateIndexesCommand.CreateIndexesArgument;
+import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.CreateIndexesCommand.CreateIndexesResult;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.ListCollectionsCommand.ListCollectionsArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.ListCollectionsCommand.ListCollectionsResult;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.admin.ListIndexesCommand.ListIndexesArgument;
@@ -21,6 +25,8 @@ import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnos
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.CollStatsCommand.CollStatsReply;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.DiagnosticCommands.DiagnosticCommandsImplementationsBuilder;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.ListDatabasesCommand.ListDatabasesReply;
+import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.ServerStatusCommand.ServerStatusArgument;
+import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.diagnostic.ServerStatusCommand.ServerStatusReply;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.general.DeleteCommand.DeleteArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.general.GeneralCommands.GeneralCommandsImplementationsBuilder;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.general.GetLastErrorCommand.GetLastErrorArgument;
@@ -50,14 +56,12 @@ import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.repl.Re
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.repl.ReplSetStepDownCommand.ReplSetStepDownArgument;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.commands.repl.ReplSetSyncFromCommand.ReplSetSyncFromReply;
 import com.eightkdata.mongowp.mongoserver.api.safe.library.v3m0.pojos.ReplicaSetConfig;
-import com.eightkdata.mongowp.mongoserver.api.safe.pojos.QueryRequest;
-import com.eightkdata.mongowp.mongoserver.api.safe.tools.Empty;
-import com.eightkdata.mongowp.mongoserver.callback.WriteOpResult;
-import com.eightkdata.mongowp.mongoserver.protocol.MongoWP.ErrorCode;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.CommandNotSupportedException;
-import com.eightkdata.mongowp.mongoserver.protocol.exceptions.MongoException;
+import com.eightkdata.mongowp.server.api.*;
+import com.eightkdata.mongowp.server.api.impl.*;
+import com.eightkdata.mongowp.server.api.pojos.QueryRequest;
+import com.eightkdata.mongowp.server.api.tools.Empty;
+import com.eightkdata.mongowp.server.callback.WriteOpResult;
 import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.net.HostAndPort;
 import com.google.common.util.concurrent.Futures;
@@ -72,7 +76,6 @@ import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Singleton;
-import org.bson.BsonDocument;
 
 /**
  * This {@linkplain SafeRequestProcessor} ignores requests on not supported databases.
@@ -99,10 +102,10 @@ public class DatabaseIgnoreSafeRequestProcessor extends DecoratorSafeRequestProc
         this.supportedDatabase = supportedDatabase;
         this.optimeClock = optimeClock;
 
-        Predicate<Map.Entry<Command,CommandImplementation>> implementedCommandFunction = new Predicate<Map.Entry<Command,CommandImplementation>>() {
+        Predicate<Map.Entry<Command<?,?>,CommandImplementation>> implementedCommandFunction = new Predicate<Map.Entry<Command<?,?>,CommandImplementation>>() {
 
             @Override
-            public boolean apply(@Nonnull Map.Entry<Command,CommandImplementation> input) {
+            public boolean apply(@Nonnull Map.Entry<Command<?,?>,CommandImplementation> input) {
                 return !(input.getValue() instanceof NotImplementedCommandImplementation);
             }
         };
@@ -171,7 +174,17 @@ public class DatabaseIgnoreSafeRequestProcessor extends DecoratorSafeRequestProc
         assert database != null;
         assert database.equals(request.getDatabase());
         if (!isAllowed(database)) {
-            return new ReplyMessage(request.getRequestId(), 0, queryMessage.getNumberToSkip(), ImmutableList.<BsonDocument>of());
+            return new ReplyMessage(
+                    EmptyBsonContext.getInstance(),
+                    request.getRequestId(),
+                    false,
+                    false,
+                    false,
+                    false,
+                    0,
+                    queryMessage.getNumberToSkip(),
+                    IterableDocumentProvider.of()
+            );
         }
         return super.query(request, queryMessage);
     }
@@ -215,7 +228,7 @@ public class DatabaseIgnoreSafeRequestProcessor extends DecoratorSafeRequestProc
                 @Override
                 public CommandResult<Empty> apply(Command<? super CreateCollectionArgument, ? super Empty> command, CommandRequest<CreateCollectionArgument> req)
                         throws MongoException {
-                    return new NonWriteCommandResult<Empty>(Empty.getInstance());
+                    return new NonWriteCommandResult<>(Empty.getInstance());
                 }
             };
         }
@@ -226,7 +239,7 @@ public class DatabaseIgnoreSafeRequestProcessor extends DecoratorSafeRequestProc
         }
 
         @Override
-        public CommandImplementation<CreateIndexesArgument, Empty> getCreateIndexesImplementation() {
+        public CommandImplementation<CreateIndexesArgument, CreateIndexesResult> getCreateIndexesImplementation() {
             return NotImplementedCommandImplementation.build();
         }
 
@@ -255,6 +268,11 @@ public class DatabaseIgnoreSafeRequestProcessor extends DecoratorSafeRequestProc
 
         @Override
         public CommandImplementation<Empty, BuildInfoResult> getBuildInfoImplementation() {
+            return NotImplementedCommandImplementation.build();
+        }
+
+        @Override
+        public CommandImplementation<ServerStatusArgument, ServerStatusReply> getServerStatusImplementation() {
             return NotImplementedCommandImplementation.build();
         }
 

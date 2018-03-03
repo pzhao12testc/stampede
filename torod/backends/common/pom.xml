@@ -9,13 +9,13 @@
     <parent>
         <artifactId>backends</artifactId>
         <groupId>com.torodb.torod.backends</groupId>
-        <version>0.40-alpha1</version>
+        <version>0.40-alpha2</version>
     </parent>
 
     <groupId>com.torodb.torod.backends</groupId>
     <artifactId>common</artifactId>
 
-    <name>Backends - common</name>
+    <name>Torod: Backends - common</name>
     <description>
         Common infrastructure for database backends. Contains most of the logic to operate database backends, providing
         interfaces for database-specific queries, syntax and behavior.
@@ -50,14 +50,7 @@
         </dependency>
         <dependency>
             <groupId>com.zaxxer</groupId>
-            <artifactId>HikariCP-java6</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>com.torodb.kvdocument</groupId>
-            <artifactId>json-converter</artifactId>
-            <version>${project.version}</version>
-            <scope>test</scope>
+            <artifactId>HikariCP</artifactId>
         </dependency>
 
         <dependency>
@@ -71,8 +64,19 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.glassfish</groupId>
-            <artifactId>javax.json</artifactId>
+            <groupId>org.mongodb</groupId>
+            <artifactId>bson</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.torodb.kvdocument</groupId>
+            <artifactId>mongowp-converter</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.8kdata.mongowp.bson</groupId>
+            <artifactId>org-bson-utils</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

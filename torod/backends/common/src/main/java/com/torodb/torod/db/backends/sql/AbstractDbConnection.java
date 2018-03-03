@@ -23,7 +23,6 @@ package com.torodb.torod.db.backends.sql;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.torodb.torod.core.ValueRow;
 import com.torodb.torod.core.dbWrapper.DbConnection;
 import com.torodb.torod.core.dbWrapper.exceptions.ImplementationDbException;
 import com.torodb.torod.core.exceptions.UserToroException;
@@ -34,7 +33,6 @@ import com.torodb.torod.core.pojos.NamedToroIndex;
 import com.torodb.torod.core.subdocument.SubDocType;
 import com.torodb.torod.core.subdocument.SubDocument;
 import com.torodb.torod.core.subdocument.structure.DocStructure;
-import com.torodb.torod.core.subdocument.values.Value;
 import com.torodb.torod.db.backends.DatabaseInterface;
 import com.torodb.torod.db.backends.exceptions.InvalidCollectionSchemaException;
 import com.torodb.torod.db.backends.meta.IndexStorage;
@@ -44,31 +42,30 @@ import com.torodb.torod.db.backends.query.QueryEvaluator;
 import com.torodb.torod.db.backends.sql.index.IndexManager;
 import com.torodb.torod.db.backends.sql.index.NamedDbIndex;
 import com.torodb.torod.db.backends.sql.index.UnnamedDbIndex;
-import com.torodb.torod.db.backends.sql.utils.SqlWindow;
 import com.torodb.torod.db.backends.tables.CollectionsTable;
 import com.torodb.torod.db.backends.tables.SubDocTable;
 import com.torodb.torod.db.backends.tables.records.CollectionsRecord;
 import com.torodb.torod.db.backends.tables.records.SubDocTableRecord;
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.io.StringReader;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import javax.inject.Inject;
+import javax.inject.Provider;
+import javax.json.Json;
+import javax.json.JsonObject;
+import javax.json.JsonReader;
+import javax.json.JsonStructure;
 import org.jooq.*;
 import org.jooq.exception.DataAccessException;
 import org.jooq.impl.DSL;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-import javax.inject.Inject;
-import javax.json.Json;
-import javax.json.JsonObject;
-import javax.json.JsonReader;
-import javax.json.JsonStructure;
-import java.io.StringReader;
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.*;
 
 
 /**
@@ -88,14 +85,18 @@ public abstract class AbstractDbConnection implements
     private final Configuration jooqConf;
     private final DSLContext dsl;
     private final DatabaseInterface databaseInterface;
+    private final Provider<SubDocType.Builder> subDocTypeBuilderProvider;
 
     @Inject
     public AbstractDbConnection(
             DSLContext dsl,
-            TorodbMeta meta, DatabaseInterface databaseInterface) {
+            TorodbMeta meta,
+            Provider<SubDocType.Builder> subDocTypeBuilderProvider,
+            DatabaseInterface databaseInterface) {
         this.jooqConf = dsl.configuration();
         this.meta = meta;
         this.dsl = dsl;
+        this.subDocTypeBuilderProvider = subDocTypeBuilderProvider;
         this.databaseInterface = databaseInterface;
     }
 
@@ -121,11 +122,22 @@ public abstract class AbstractDbConnection implements
         return meta;
     }
 
+    protected Configuration getJooqConf() {
+        return jooqConf;
+    }
+
+    protected DatabaseInterface getDatabaseInterface() {
+        return databaseInterface;
+    }
+
     @Override
     public void close() {
         try {
             Connection connection = jooqConf.connectionProvider().acquire();
-            connection.close();
+            if (!connection.isClosed()) {
+                connection.rollback();
+                connection.close();
+            }
         } catch (SQLException ex) {
             //TODO: Change exception
             throw new RuntimeException(ex);
@@ -233,28 +245,35 @@ public abstract class AbstractDbConnection implements
     }
 
     @Override
-    public void insertSubdocuments(String collection, SubDocType type, Iterator<? extends SubDocument> subDocuments) {
+    public void insertSubdocuments(String collection, SubDocType type, Iterable<? extends SubDocument> subDocuments) {
         try {
-            Collection<Query> inserts = Lists.newLinkedList();
-
             SubDocTable table = meta.getCollectionSchema(collection).getSubDocTable(type);
 
-            while (subDocuments.hasNext()) {
-                SubDocument subDocument = subDocuments.next();
+            InsertSetMoreStep<?> insert = null;
+
+            for (SubDocument subDocument : subDocuments) {
                 assert subDocument.getType().equals(type);
 
-                SubDocTableRecord record = new SubDocTableRecord(table);
+                SubDocTableRecord record = new SubDocTableRecord(table, subDocTypeBuilderProvider);
                 record.setDid(subDocument.getDocumentId());
                 record.setIndex(translateSubDocIndexToDatabase(subDocument.getIndex()));
                 record.setSubDoc(subDocument);
-                InsertSetMoreStep<?> insert = dsl.insertInto(table)
-                        .set(record);
 
-                inserts.add(insert);
-//                insert.execute();
+                if (insert == null) {
+                    insert = dsl.insertInto(table).set(record);
+                }
+                else {
+                    insert = insert.newRecord().set(record);
+                }
             }
 
-            dsl.batch(inserts).execute();
+            if (insert != null) {
+                insert.execute();
+            }
+            else {
+                assert false : "Call to insertSubdocuments with an empty set of subdocuments";
+                LOGGER.warn("Call to insertSubdocuments with an empty set of subdocuments");
+            }
         } catch (DataAccessException ex) {
             //TODO: Change exception
             throw new RuntimeException(ex);
@@ -298,7 +317,7 @@ public abstract class AbstractDbConnection implements
         );
     }
 
-    private Integer translateSubDocIndexToDatabase(int index) {
+    protected Integer translateSubDocIndexToDatabase(int index) {
         if (index == 0) {
             return null;
         }
@@ -429,36 +448,6 @@ public abstract class AbstractDbConnection implements
         );
         
         return dids.size();
-    }
-
-    @SuppressFBWarnings(
-            value = "SQL_NONCONSTANT_STRING_PASSED_TO_EXECUTE",
-            justification = "It is known that this command is unsafe. We need"
-                    + "to improve it as soon as we can")
-    @Override
-    public Iterator<ValueRow<Value>> select(String query) throws UserToroException {
-        Connection connection = jooqConf.connectionProvider().acquire();
-        try {
-            try (Statement st = connection.createStatement()) {
-                //This is executed to force read only executions
-                st.executeUpdate("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
-                st.executeUpdate("SET TRANSACTION READ ONLY");
-                st.executeUpdate("SET TRANSACTION DEFERRABLE");
-                //Once the first query is executed, transacion level is immutable
-                ResultSet fakeRS = st.executeQuery("SELECT 1");
-                fakeRS.close();
-
-
-                try (ResultSet rs = st.executeQuery(query)) {
-                    return new SqlWindow(rs, databaseInterface.getBasicTypeToSqlType());
-                }
-            } catch (SQLException ex) {
-                //TODO: Change exception
-                throw new UserToroException(ex);
-            }
-        } finally {
-            jooqConf.connectionProvider().release(connection);
-        }
     }
 
 }

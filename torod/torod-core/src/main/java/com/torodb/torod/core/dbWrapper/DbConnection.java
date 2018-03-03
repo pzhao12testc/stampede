@@ -33,22 +33,22 @@ import com.torodb.torod.core.pojos.NamedToroIndex;
 import com.torodb.torod.core.subdocument.SplitDocument;
 import com.torodb.torod.core.subdocument.SubDocType;
 import com.torodb.torod.core.subdocument.SubDocument;
-import com.torodb.torod.core.subdocument.values.Value;
-
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
-import javax.annotation.concurrent.ThreadSafe;
-import javax.json.JsonObject;
+import com.torodb.torod.core.subdocument.values.ScalarValue;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import javax.annotation.concurrent.Immutable;
+import javax.annotation.concurrent.ThreadSafe;
+import javax.json.JsonObject;
 
 /**
  *
  */
 @ThreadSafe
-public interface DbConnection {
+public interface DbConnection extends AutoCloseable {
 
     /**
      * Close the connection.
@@ -57,6 +57,7 @@ public interface DbConnection {
      * @throws com.torodb.torod.core.dbWrapper.exceptions.ImplementationDbException
      * @throws com.torodb.torod.core.dbWrapper.exceptions.UserDbException
      */
+    @Override
     public void close() throws ImplementationDbException, UserDbException;
     
     public void commit() throws ImplementationDbException, UserDbException;
@@ -111,7 +112,7 @@ public interface DbConnection {
     public void insertSubdocuments(
             @Nonnull String collection,
             @Nonnull SubDocType subDocType,
-            @Nonnull Iterator<? extends SubDocument> subDocuments);
+            @Nonnull Iterable<? extends SubDocument> subDocuments);
 
     /**
      * Returns a map that contains all collections in the database as keys and the last reserved doc id for each one as
@@ -178,5 +179,21 @@ public interface DbConnection {
     @Beta
     public void dropPathViews(String collection) throws IllegalPathViewException;
 
-    public Iterator<ValueRow<Value>> select(String query) throws UserToroException;
+    public Iterator<ValueRow<ScalarValue<?>>> select(String query) throws UserToroException;
+
+    @Immutable
+    public static class Metainfo {
+        public static final Metainfo READ_ONLY = new Metainfo(true);
+        public static final Metainfo NOT_READ_ONLY = new Metainfo(false);
+
+        private final boolean readOnly;
+
+        public Metainfo(boolean readOnly) {
+            this.readOnly = readOnly;
+        }
+
+        public boolean isReadOnly() {
+            return readOnly;
+        }
+    }
 }
