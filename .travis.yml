@@ -51,6 +51,16 @@ env:
 jdk:
 - oraclejdk8
 language: java
+matrix:
+  allow_failures:
+  - env: Protocol=MongoReplSet Backend=Postgres
+  exclude:
+  - env: Protocol=Mongo Backend=Greenplum
+    jdk: oraclejdk7
+  - env: Protocol=Mongo Backend=MySQL
+    jdk: oraclejdk7
+  - env: Protocol=MongoReplSet Backend=Postgres
+    jdk: oraclejdk7
 script:
 - touch /tmp/NOW
 - echo GIBSTUDYSTART $(date)
